@@ -60,7 +60,7 @@ for (phenotypeName in phenotypeNames) {
 			bind_cols(as_tibble(t(coef(summary(glmFit))[2,])))}
 
 	glmDf = glmDf %>%
-		rename(coef = Estimate, seCoef = `Std. Error`, pval = `Pr(>|z|)`) %>%
+		rename(coef = Estimate, seCoef = `Std. Error`, z = `z value`, pval = `Pr(>|z|)`) %>%
 		arrange(pval) %>%
-		write_csv(file.path('results', sprintf('naive%d_%s.csv', minEvents, phenotypeName)))
+		write_csv(file.path('results', sprintf('logistic%d_%s.csv', minEvents, phenotypeName)))
 }

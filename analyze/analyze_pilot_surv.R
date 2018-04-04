@@ -73,17 +73,15 @@ for (phenotypeName in phenotypeNames) {
 		ungroup() %>%
 		select(grid, sex, age1, age2, status)
 
-	# timeStart = Sys.time()
 	coxDf = foreach(snpName=snpNames, .combine = rbind) %dopar% {
 		coxInput = coxBase
 		coxInput$snp = as(exome$genotypes[coxBase$grid, snpName], 'numeric')[,1]
 		coxFit = coxph(Surv(age1, age2, status) ~ snp + sex + cluster(grid), data=coxInput)
 		tibble(snpName = snpName) %>%
 			bind_cols(as_tibble(t(coef(summary(coxFit))[1,])))}
-	# timeElapsed = Sys.time() - timeStart
 
 	coxDf = coxDf %>%
 		rename(expCoef = `exp(coef)`, seCoef = `se(coef)`, pval = `Pr(>|z|)`) %>%
 		arrange(pval) %>%
-		write_csv(file.path('results', sprintf('count%d_%s.csv', nEvents, phenotypeName)))
+		write_csv(file.path('results', sprintf('surv%d_%s.csv', nEvents, phenotypeName)))
 }
