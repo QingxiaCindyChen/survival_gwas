@@ -71,7 +71,3 @@ on a.GRID = b.GRID
 where a.CODE in ('331.0', '331.00')
 and b.EURO = 1
 order by a.GRID, a.ENTRY_DATE;
-
-
-
-
