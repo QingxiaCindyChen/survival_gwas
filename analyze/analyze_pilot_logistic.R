@@ -9,11 +9,12 @@ registerDoParallel(cores=16)
 phenotypeNames = c('alzheimers', 'atrial_fibrillation', 'gout',
 						 'multiple_sclerosis', 'prostate_cancer', 'rheumatoid_arthritis')
 minMaf = 0.01
-minEvents = 1
-minRecLen = 1 # years
+minEvents = 2
+minRecLen = 0 # years
 
 # load snp data
-exome = read.plink(file.path('..', 'exome', 'Exome_GRID_Euro'))
+genotypeDir = '../genotype_data/exome'
+exome = read.plink(file.path(genotypeDir, 'Exome_GRID_Euro'))
 exomeSummary = col.summary(exome$genotypes)
 idx = exomeSummary$MAF >= minMaf
 snpInfo = read_csv(file.path('processed', 'exome_map.csv'), col_types=cols())
@@ -27,11 +28,12 @@ gridInfo = gridInfo %>%
 	mutate(first_entry_date = as.Date(first_entry_date),
 			 last_entry_date = as.Date(last_entry_date),
 			 first_age = time_length(first_entry_date - dob, 'years'),
-			 last_age = time_length(last_entry_date - dob, 'years'))
+			 last_age = time_length(last_entry_date - dob, 'years'),
+			 rec_len = last_age - first_age)
 
 gridInfo = gridInfo %>%
 	filter(last_age >= 18,
-			 last_age - first_age >= minRecLen)
+			 rec_len >= minRecLen)
 
 for (phenotypeName in phenotypeNames) {
 	# load phenotype data
@@ -50,17 +52,18 @@ for (phenotypeName in phenotypeNames) {
 	# run glm analysis
 	glmBase = tibble(grid = exome$fam$pedigree, sex = exome$fam$sex) %>%
 		inner_join(pheno, by='grid') %>%
-		select(grid, sex, last_age, status)
+		select(grid, sex, last_age, rec_len, status)
 
 	glmDf = foreach(snpName=snpNames, .combine = rbind) %dopar% {
 		glmInput = glmBase
 		glmInput$snp = as(exome$genotypes[glmBase$grid, snpName], 'numeric')[,1]
-		glmFit = glm(status ~ snp + sex + splines::ns(last_age, df=4), data=glmInput, family=binomial)
+		glmFit = glm(status ~ snp + sex + rec_len + splines::ns(last_age, df=4),
+						 data=glmInput, family=binomial)
 		tibble(snpName = snpName) %>%
 			bind_cols(as_tibble(t(coef(summary(glmFit))[2,])))}
 
 	glmDf = glmDf %>%
 		rename(coef = Estimate, seCoef = `Std. Error`, z = `z value`, pval = `Pr(>|z|)`) %>%
 		arrange(pval) %>%
-		write_csv(file.path('results', sprintf('logistic%d_%s.csv', minEvents, phenotypeName)))
+		write_csv(file.path('results', sprintf('logistic%d_reclen_%s.csv', minEvents, phenotypeName)))
 }
