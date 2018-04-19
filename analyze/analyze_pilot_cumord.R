@@ -5,23 +5,28 @@ library('doParallel')
 library('ordinal')
 library('snpStats')
 
-registerDoParallel(cores=16)
+registerDoParallel(cores = 16)
 
-phenotypeNames = c('alzheimers', 'atrial_fibrillation', 'gout',
-						 'multiple_sclerosis', 'prostate_cancer', 'rheumatoid_arthritis')
 minMaf = 0.01
+minCallRate = 0.95
+
+phenotypes = c('alzheimers', 'atrial_fibrillation', 'gout',
+					'multiple_sclerosis', 'prostate_cancer', 'rheumatoid_arthritis')
 maxEvents = 3
 minRecLen = 1 # years
+
+procDir = 'processed'
+resultDir = 'results'
 
 # load snp data
 exome = read.plink(file.path('..', 'exome', 'Exome_GRID_Euro'))
 exomeSummary = col.summary(exome$genotypes)
-idx = exomeSummary$MAF >= minMaf
-snpInfo = read_csv(file.path('processed', 'exome_map.csv'), col_types=cols())
+idx = (exomeSummary$MAF >= minMaf) & (exomeSummary$Call.rate >= minCallRate)
+snpInfo = read_csv(file.path(procDir, 'exome_map.csv.gz'), col_types=cols())
 snpNames = intersect(colnames(exome$genotypes)[idx], snpInfo$snp.name[snpInfo$chromosome <= 22])
 
 # load grid data
-gridInfo = read_csv(file.path('processed', 'grid_info.csv'), col_types='ccDTT')
+gridInfo = read_csv(file.path(procDir, 'grid_info.csv.gz'), col_types='ccDTT')
 colnames(gridInfo) = tolower(colnames(gridInfo))
 gridInfo = gridInfo %>%
 	rename(gender = gender_epic) %>%
@@ -34,9 +39,9 @@ gridInfo = gridInfo %>%
 	filter(last_age >= 18,
 			 last_age - first_age >= minRecLen)
 
-for (phenotypeName in phenotypeNames) {
+for (phenotype in phenotypes) {
 	# load phenotype data
-	phenoRaw = read_csv(file.path('processed', sprintf('pheno_%s.csv', phenotypeName)), col_types='ccT')
+	phenoRaw = read_csv(file.path(procDir, sprintf('pheno_%s.csv.gz', phenotype)), col_types='ccT')
 	colnames(phenoRaw) = tolower(colnames(phenoRaw))
 	phenoRaw$entry_date = as.Date(phenoRaw$entry_date)
 
@@ -62,5 +67,5 @@ for (phenotypeName in phenotypeNames) {
 	clmDf = clmDf %>%
 		rename(coef = Estimate, seCoef = `Std. Error`, z = `z value`, pval = `Pr(>|z|)`) %>%
 		arrange(pval) %>%
-		write_csv(file.path('results', sprintf('cumord%d_%s.csv', maxEvents, phenotypeName)))
+		write_csv(gzfile(file.path(resultDir, sprintf('cumord%d_%s.csv.gz', maxEvents, phenotype))))
 }

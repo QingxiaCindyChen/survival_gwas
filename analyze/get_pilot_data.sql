@@ -16,9 +16,9 @@ on a.GRID = c.GRID
 where b.EURO = 1
 group by a.GRID, c.GENDER_EPIC, c.DOB;
 
-# make one table per phenotype
+-- make one table per phenotype
 
-# gout
+-- gout
 select a.GRID, a.CODE, a.ENTRY_DATE
 from ICD_CODES a
 inner join LB_EXOME b
@@ -27,7 +27,7 @@ where a.CODE in ('274', '274.0', '274.00', '274.01', '274.02', '274.03', '274.1'
 and b.EURO = 1
 order by a.GRID, a.ENTRY_DATE;
 
-# ra
+-- ra
 select a.GRID, a.CODE, a.ENTRY_DATE
 from ICD_CODES a
 inner join LB_EXOME b
@@ -36,7 +36,7 @@ where a.CODE in ('714.0', '714.1', '714.2', '714.81')
 and b.EURO = 1
 order by a.GRID, a.ENTRY_DATE;
 
-# ms
+-- ms
 select a.GRID, a.CODE, a.ENTRY_DATE
 from ICD_CODES a
 inner join LB_EXOME b
@@ -45,7 +45,7 @@ where a.CODE in ('340')
 and b.EURO = 1
 order by a.GRID, a.ENTRY_DATE;
 
-# prostate cancer
+-- prostate cancer
 select a.GRID, a.CODE, a.ENTRY_DATE
 from ICD_CODES a
 inner join LB_EXOME b
@@ -54,7 +54,7 @@ where a.CODE in ('185', '233.4', 'V10.46')
 and b.EURO = 1
 order by a.GRID, a.ENTRY_DATE;
 
-# a-fib
+-- a-fib
 select a.GRID, a.CODE, a.ENTRY_DATE
 from ICD_CODES a
 inner join LB_EXOME b
@@ -63,7 +63,7 @@ where a.CODE in ('427.31')
 and b.EURO = 1
 order by a.GRID, a.ENTRY_DATE;
 
-# alzheimer's
+-- alzheimer's
 select a.GRID, a.CODE, a.ENTRY_DATE
 from ICD_CODES a
 inner join LB_EXOME b
