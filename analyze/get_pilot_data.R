@@ -4,14 +4,12 @@ library('RODBC')
 
 # need to clean this up, include mapping and maybe save everything as one big dataframe
 
-procDir = 'processed'
 # mapUnrolled = read_csv(file.path(procDir, 'phecode_icd9_map_unrolled.csv'), col_types='cc')
 # phecodeDef = read_csv(file.path(procDir, 'phecode_definitions1.2.csv'), col_types='ccccii')
 
-# con = odbcConnect('NZSQL', believeNRows = FALSE)
-con = 0
-
+con = odbcConnect('NZSQL', believeNRows = FALSE)
 gridSet = 'LB_EXOME'
+procDir = 'processed'
 
 getPhenoRaw = function(con, phecodes, gridSet) {
 	queryStr = sprintf("select a.GRID, a.CODE, a.ENTRY_DATE
@@ -23,12 +21,11 @@ getPhenoRaw = function(con, phecodes, gridSet) {
 							 order by a.GRID, a.ENTRY_DATE;",
 							 gridSet, paste(phecodes, collapse="','"))
 	queryStr = gsub(pattern = '\\s+', replacement = ' ', x = queryStr)
-	# df = sqlQuery(con, queryStr)
-}
+	df = sqlQuery(con, queryStr)}
 
 ########################################
 
-queryStr = sprintf('select a.GRID, c.GENDER_EPIC, c.DOB
+queryStr = sprintf('select a.GRID, c.GENDER_EPIC, c.DOB,
 						 min(a.ENTRY_DATE) as FIRST_ENTRY_DATE, max(a.ENTRY_DATE) as LAST_ENTRY_DATE
 						 from ICD_CODES a
 						 inner join %s b
@@ -86,13 +83,54 @@ phecodes = c('331.0', '331.00')
 phenoRaw = getPhenoRaw(con, phecodes, gridSet)
 write_csv(phenoRaw, gzfile(file.path(procDir, sprintf('pheno_%s.csv.gz', phenotype))))
 
-# close(con)
+########################################
+
+close(con)
 
 ########################################
+
+# library('dplyr')
+# library('lubridate')
+
+# gridInfo1 = read_csv(file.path(procDir, 'old/grid_info.csv.gz'), col_types='ccDTT')
+# colnames(gridInfo1) = tolower(colnames(gridInfo1))
+# gridInfo1 = gridInfo1 %>%
+# 	rename(gender = gender_epic) %>%
+# 	mutate(first_entry_date = as.Date(first_entry_date),
+# 			 last_entry_date = as.Date(last_entry_date),
+# 			 first_age = time_length(first_entry_date - dob, 'years'),
+# 			 last_age = time_length(last_entry_date - dob, 'years')) %>%
+# 	arrange(grid)
+#
+# gridInfo2 = read_csv(file.path(procDir, 'grid_info.csv.gz'), col_types='ccDTT')
+# colnames(gridInfo2) = tolower(colnames(gridInfo2))
+# gridInfo2 = gridInfo2 %>%
+# 	rename(gender = gender_epic) %>%
+# 	mutate(first_entry_date = as.Date(first_entry_date),
+# 			 last_entry_date = as.Date(last_entry_date),
+# 			 first_age = time_length(first_entry_date - dob, 'years'),
+# 			 last_age = time_length(last_entry_date - dob, 'years')) %>%
+# 	arrange(grid)
+#
+# print(identical(gridInfo1$grid, gridInfo2$grid))
+# print(identical(gridInfo1$first_age, gridInfo2$first_age))
+# which(gridInfo1$first_age != gridInfo2$first_age)
+
 
 # phenotypes = c('alzheimers', 'atrial_fibrillation', 'gout',
 # 					'multiple_sclerosis', 'prostate_cancer', 'rheumatoid_arthritis')
 #
+# for (phenotype in phenotypes) {
+# 	phenoRaw1 = read_csv(file.path(procDir, sprintf('old/pheno_%s.csv.gz', phenotype)), col_types='ccT')
+# 	colnames(phenoRaw1) = tolower(colnames(phenoRaw1))
+# 	phenoRaw1$entry_date = as.Date(phenoRaw1$entry_date)
+# 	phenoRaw2 = read_csv(file.path(procDir, sprintf('pheno_%s.csv.gz', phenotype)), col_types='ccT')
+# 	colnames(phenoRaw2) = tolower(colnames(phenoRaw2))
+# 	phenoRaw2$entry_date = as.Date(phenoRaw2$entry_date)
+# 	print(identical(phenoRaw1, phenoRaw2))
+# }
+
+
 # for (phenotype in phenotypes) {
 # 	phenoRaw = readRDS(file.path(procDir, sprintf('pheno_%s.rds', phenotype)))
 # 	write_csv(phenoRaw, gzfile(file.path(procDir, sprintf('pheno_%s.csv.gz', phenotype))))
