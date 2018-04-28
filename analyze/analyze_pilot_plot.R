@@ -31,13 +31,14 @@ coxDf = foreach(phenotypeNow = phenotypes[idx], .combine = rbind) %do% {
 				col_types = cols()) %>%
 		mutate(phenotype = phenotypeNow)}
 
-a = inner_join(coxDf, snpInfo, by = 'snp') %>%
-	mutate(pval = ifelse(pval==0, 1e-20, pval))
+coxDf = mutate(coxDf, pval = ifelse(pval==0, 2*pnorm(-abs(z)), pval))
+
+a = inner_join(coxDf, snpInfo, by = 'snp')
 
 for (phenotypeNow in phenotypes[idx]) {
 	pdf(file.path(resultDir, sprintf('%s_man_%s.pdf', survName, phenotypeNow)), width = 6, height = 4)
 	manhattan(a %>% filter(phenotype==phenotypeNow), p = 'pval', snp = 'snp', chr = 'chr', bp = 'pos',
-				 main = phenotypeNow, ylim = c(0, 21))
+				 main = phenotypeNow)
 	dev.off()}
 
 for (phenotypeNow in phenotypes[idx]) {
