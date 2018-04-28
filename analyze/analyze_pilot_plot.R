@@ -18,25 +18,30 @@ snpInfo = read_csv(file.path(procDir, 'exome_map.csv.gz'), col_types = cols()) %
 phenotypes = c('alzheimers', 'atrial_fibrillation', 'gout',
 					'multiple_sclerosis', 'prostate_cancer', 'rheumatoid_arthritis')
 
+minEvents = 2
+survName = paste0('surv', minEvents)
+logisticName = paste0('logistic', minEvents)
+
 #######################################################
 
 idx = 1:6
 
 coxDf = foreach(phenotypeNow = phenotypes[idx], .combine = rbind) %do% {
-	read_csv(file.path(resultDir, sprintf('surv2/surv2_%s.csv.gz', phenotypeNow)), col_types = cols()) %>%
+	read_csv(file.path(resultDir, sprintf('%s/%s_%s.csv.gz', survName, survName, phenotypeNow)),
+				col_types = cols()) %>%
 		mutate(phenotype = phenotypeNow)}
 
 a = inner_join(coxDf, snpInfo, by = 'snp') %>%
 	mutate(pval = ifelse(pval==0, 1e-20, pval))
 
 for (phenotypeNow in phenotypes[idx]) {
-	pdf(file.path(resultDir, sprintf('surv2_man_%s.pdf', phenotypeNow)), width = 6, height = 4)
+	pdf(file.path(resultDir, sprintf('%s_man_%s.pdf', survName, phenotypeNow)), width = 6, height = 4)
 	manhattan(a %>% filter(phenotype==phenotypeNow), p = 'pval', snp = 'snp', chr = 'chr', bp = 'pos',
 				 main = phenotypeNow, ylim = c(0, 21))
 	dev.off()}
 
 for (phenotypeNow in phenotypes[idx]) {
-	pdf(file.path(resultDir, sprintf('surv2_qq_%s.pdf', phenotypeNow)), width = 4, height = 4)
+	pdf(file.path(resultDir, sprintf('%s_qq_%s.pdf', survName, phenotypeNow)), width = 4, height = 4)
 	qq(a %>% filter(phenotype==phenotypeNow) %>% .$pval, main = phenotypeNow)
 	dev.off()}
 
@@ -45,19 +50,20 @@ for (phenotypeNow in phenotypes[idx]) {
 idx = 1:6
 
 glmDf = foreach(phenotypeNow = phenotypes[idx], .combine = rbind) %do% {
-	read_csv(file.path(resultDir, sprintf('logistic2/logistic2_%s.csv.gz', phenotypeNow)), col_types=cols()) %>%
+	read_csv(file.path(resultDir, sprintf('%s/%s_%s.csv.gz', logisticName, logisticName, phenotypeNow)),
+				col_types = cols()) %>%
 		mutate(phenotype = phenotypeNow)}
 
 a = inner_join(glmDf, snpInfo, by = 'snp')
 
 for (phenotypeNow in phenotypes[idx]) {
-	pdf(file.path(resultDir, sprintf('logistic2_man_%s.pdf', phenotypeNow)), width = 6, height = 4)
+	pdf(file.path(resultDir, sprintf('%s_man_%s.pdf', logisticName, phenotypeNow)), width = 6, height = 4)
 	manhattan(a %>% filter(phenotype==phenotypeNow), p = 'pval', snp = 'snp', chr = 'chr', bp = 'pos',
 				 main = phenotypeNow)
 	dev.off()}
 
 for (phenotypeNow in phenotypes[idx]) {
-	pdf(file.path(resultDir, sprintf('logistic2_qq_%s.pdf', phenotypeNow)), width = 4, height = 4)
+	pdf(file.path(resultDir, sprintf('%s_qq_%s.pdf', logisticName, phenotypeNow)), width = 4, height = 4)
 	qq(a %>% filter(phenotype==phenotypeNow) %>% .$pval, main = phenotypeNow)
 	dev.off()}
 
@@ -68,9 +74,18 @@ df = inner_join(coxDf, glmDf, by = c('phenotype', 'snp')) %>%
 	mutate(pvalCox = ifelse(pvalCox==0, 1e-20, pvalCox)) %>%
 	filter(pvalCox <= 1e-3 | pvalGlm <= 1e-3)
 
-p = ggplot(df) +
+p1 = ggplot(df) +
 	facet_wrap(~ phenotype, nrow = 2, scales = 'free') +
 	geom_abline(slope = 1, intercept = 0, color = 'darkgray', size = 0.5) +
 	geom_point(aes(x = -log10(pvalGlm), y = -log10(pvalCox)), shape = 16, size = 0.75, alpha = 0.5)
 
-ggsave(file.path(resultDir, 'compare_pval_surv2_logistic2.pdf'), plot = p, width = 8, height = 5.75)
+p2 = ggplot(df) +
+	facet_wrap(~ phenotype, nrow = 2, scales = 'free') +
+	geom_hline(yintercept = 0, color = 'darkgray', size = 0.5) +
+	geom_point(aes(x = (-log10(pvalGlm) - log10(pvalGlm)) / 2, y = -log10(pvalCox) + log10(pvalGlm)),
+				  shape = 16, size = 0.75, alpha = 0.5)
+
+p = plot_grid(p1, p2, ncol = 1, align = 'v')
+
+ggsave(file.path(resultDir, sprintf('compare_pval_%s_%s.pdf', survName, logisticName)),
+		 plot = p, width = 6, height = 8)
