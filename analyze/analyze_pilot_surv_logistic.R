@@ -5,9 +5,18 @@ library('doParallel')
 library('snpStats')
 
 
+filterInputSex = function(inputDf, whichSex) {
+	if (whichSex == 'male') {
+		filter(inputDf, sex == 1)
+	} else if (whichSex == 'female') {
+		filter(inputDf, sex == 2)
+	} else {
+		inputDf}}
+
+
 # expected colnames in phenoRaw: grid, entry_date
 # expected colnames in gridInfo: grid, last_age, rec_len
-makeGlmInput = function(phenoRaw, gridInfo, exome, minEvents) {
+makeGlmInput = function(phenoRaw, gridInfo, exome, minEvents, whichSex) {
 	pheno = phenoRaw %>%
 		distinct(grid, entry_date) %>%
 		count(grid) %>%
@@ -18,19 +27,26 @@ makeGlmInput = function(phenoRaw, gridInfo, exome, minEvents) {
 
 	glmInput = tibble(grid = exome$fam$pedigree, sex = exome$fam$sex) %>%
 		inner_join(pheno, by = 'grid') %>%
-		select(grid, sex, last_age, rec_len, status)}
+		select(grid, sex, last_age, rec_len, status)
+
+	glmInput = filterInputSex(glmInput, whichSex)}
 
 
 # expected colnames in coxInput: grid, sex, last_age, rec_len, status
-runGlm = function(glmInput, exome, snp, splineDf = 4) {
-	glmInput$snp = as(exome$genotypes[glmInput$grid, snp], 'numeric')[,1]
-	glmFit = glm(status ~ snp + sex + rec_len + splines::ns(last_age, df = splineDf),
-					 data = glmInput, family = binomial)}
+runGlm = function(glmInput, exome, snpName, whichSex, splineDf = 4) {
+	glmInput$snp = as(exome$genotypes[glmInput$grid, snpName], 'numeric')[,1]
+	glmInput = filter(glmInput, !is.na(snp))
+	if (whichSex == 'both') {
+		glmFit = glm(status ~ snp + sex + rec_len + splines::ns(last_age, df = splineDf),
+						 data = glmInput, family = binomial)
+	} else {
+		glmFit = glm(status ~ snp + rec_len + splines::ns(last_age, df = splineDf),
+						 data = glmInput, family = binomial)}}
 
 
 # expected colnames in phenoRaw: grid, entry_date
 # expected colnames in gridInfo: grid, dob, first_age, last_age
-makeCoxInput = function(phenoRaw, gridInfo, exome, minEvents, buffer) {
+makeCoxInput = function(phenoRaw, gridInfo, exome, minEvents, buffer, whichSex) {
 	phenoCase = phenoRaw %>%
 		semi_join(gridInfo, by = 'grid') %>%
 		group_by(grid) %>%
@@ -55,13 +71,19 @@ makeCoxInput = function(phenoRaw, gridInfo, exome, minEvents, buffer) {
 				 age2 = ifelse(status, age, last_age),
 				 age1 = min(first_age, age2 - buffer)) %>%
 		ungroup() %>%
-		select(grid, sex, age1, age2, status)}
+		select(grid, sex, age1, age2, status)
+
+	coxInput = filterInputSex(coxInput, whichSex)}
 
 
 # expected colnames in coxInput: grid, sex, age1, age2, status
-runCoxph = function(coxInput, exome, snp) {
-	coxInput$snp = as(exome$genotypes[coxInput$grid, snp], 'numeric')[,1]
-	coxFit = coxph(Surv(age1, age2, status) ~ snp + sex, data = coxInput)}
+runCoxph = function(coxInput, exome, snpName, whichSex) {
+	coxInput$snp = as(exome$genotypes[coxInput$grid, snpName], 'numeric')[,1]
+	coxInput = filter(coxInput, !is.na(snp))
+	if (whichSex == 'both') {
+		coxFit = coxph(Surv(age1, age2, status) ~ snp + sex, data = coxInput)
+	} else {
+		coxFit = coxph(Surv(age1, age2, status) ~ snp, data = coxInput)}}
 
 ########################################
 
@@ -70,8 +92,9 @@ registerDoParallel(cores = 16)
 minMaf = 0.01
 minCallRate = 0.95
 
-phenotypes = c('alzheimers', 'atrial_fibrillation', 'gout',
-					'multiple_sclerosis', 'prostate_cancer', 'rheumatoid_arthritis')
+phenoMetadata = tibble(phenotype = c('alzheimers', 'atrial_fibrillation', 'gout',
+												 'multiple_sclerosis', 'prostate_cancer', 'rheumatoid_arthritis'),
+							  whichSex = c('both', 'both', 'both', 'both', 'male', 'both'))
 minEvents = 2
 minRecLen = 0 # years
 # minLastAge = 18 # years
@@ -105,17 +128,22 @@ gridInfo = gridInfo %>%
 	filter(first_age >= 0,
 			 rec_len >= minRecLen)
 
+# save(filterInputSex, makeCoxInput, runCoxph, phenoMetadata, minEvents,minRecLen, buffer,
+# 	  procDir, resultDir, exome, snps, gridInfo, file = 'pilot_workspace.Rdata')
 
-for (phenotype in phenotypes) {
+for (ii in 1:nrow(phenoMetadata)) {
+	phenotype = phenoMetadata$phenotype[ii]
+	whichSex = phenoMetadata$whichSex[ii]
+
 	phenoRaw = read_csv(file.path(procDir, sprintf('pheno_%s.csv.gz', phenotype)), col_types = 'ccT')
 	colnames(phenoRaw) = tolower(colnames(phenoRaw))
 	phenoRaw$entry_date = as.Date(phenoRaw$entry_date)
 
 
-	coxInput = makeCoxInput(phenoRaw, gridInfo, exome, minEvents, buffer)
+	coxInput = makeCoxInput(phenoRaw, gridInfo, exome, minEvents, buffer, whichSex)
 
 	coxDf = foreach(snp = snps, .combine = rbind) %dopar% {
-		coxFit = runCoxph(coxInput, exome, snp)
+		coxFit = runCoxph(coxInput, exome, snp, whichSex)
 		bind_cols(tibble(snp = snp), as_tibble(t(coef(summary(coxFit))[1,])))}
 
 	coxDf = coxDf %>%
@@ -124,10 +152,10 @@ for (phenotype in phenotypes) {
 		write_csv(gzfile(file.path(resultDir, sprintf('surv%d_%s.csv.gz', minEvents, phenotype))))
 
 
-	glmInput = makeGlmInput(phenoRaw, gridInfo, exome, minEvents)
+	glmInput = makeGlmInput(phenoRaw, gridInfo, exome, minEvents, whichSex)
 
 	glmDf = foreach(snp = snps, .combine = rbind) %dopar% {
-		glmFit = runGlm(glmInput, exome, snp)
+		glmFit = runGlm(glmInput, exome, snp, whichSex)
 		bind_cols(tibble(snp = snp), as_tibble(t(coef(summary(glmFit))[2,])))}
 
 	glmDf = glmDf %>%
