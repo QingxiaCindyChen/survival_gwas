@@ -3,7 +3,8 @@ source(file.path('analyze', 'analyze_setup.R'))
 filePrefix = 'exome'
 
 minEvents = 2
-buffer = 1 # years, used for cox regression
+maxAgeAtEvent = 90 # years; dates in the SD after this age are untrustworthy
+buffer = 1 # years; used for cox regression
 
 # load grid data
 minRecLen = 0 # years
@@ -30,35 +31,37 @@ snps = intersect(colnames(genoData$genoFull$genotypes)[idx], snpData[chr <= 22, 
 # load phenotype data
 minGrids = 50
 phenoData = setDT(read_csv(file.path(procDir, sprintf('%s_phenotype_data.csv.gz', filePrefix)),
-									col_types = 'cDc'))
+									col_types = 'ccD'))
 phenoData = phenoData[, if (length(unique(grid)) >= minGrids) .SD, by = phecode]
 phenoData = phenoData[order(grid, phecode, entry_date), .(grid, phecode, entry_date)]
 
 ############################################################
 # testing
 
-# set.seed(4)
-# snps = snps[sample.int(length(snps), 100)]
 # phenoData = phenoData[phecode %in% c('274.1', '714.1', '335', '185', '427.21', '290.11'),]
+# snps = unique(read_csv(file.path(resultDir, 'exome_pilot_top20.csv'))$snp)
 
 ############################################################
 
-registerDoParallel(cores = 16)
+phenoData = merge(phenoData, gridData, by = 'grid')
+phenoData[, age := time_length(entry_date - dob, 'years')]
+phenoData = phenoData[age <= maxAgeAtEvent,]
 
-# phenoLoop = phecodeData[phecodeData$phecode %in% unique(phenoData$phecode),]
-phenoLoop = phecodeData[phecode %in% unique(phenoData[, phecode]),]
+############################################################
+
+registerDoParallel(cores = 20)
+# registerDoParallel(cores = 2)
+
+phenoLoop = phecodeData[phecode %in% unique(phenoData$phecode),]
 
 logFilepath = file.path(resultDir, sprintf('%s_progress.txt', filePrefix))
 timeStarted = Sys.time()
 cat(sprintf('%s started analysis\n', timeStarted), file = logFilepath)
 
 gwasFilenames = foreach(ii = 1:nrow(phenoLoop), .combine = c) %dopar% {
-	# phecode = phenoLoop$phecode[ii]
-	# whichSex = phenoLoop$whichSex[ii]
-	# phenoDataNow = phenoData[phenoData$phecode == phecode,]
-	phecode = phenoLoop[ii, phecode]
-	whichSex = phenoLoop[ii, whichSex]
-	phenoDataNow = phenoData[phecode == phenoLoop[ii, phecode], .(grid, entry_date)]
+	phecode = phenoLoop$phecode[ii]
+	whichSex = phenoLoop$whichSex[ii]
+	phenoDataNow = phenoData[phecode == phenoLoop$phecode[ii], .(grid, age)]
 
 	if (whichSex == 'both') {
 		runGlmNow = runGlmSexBoth
@@ -67,34 +70,22 @@ gwasFilenames = foreach(ii = 1:nrow(phenoLoop), .combine = c) %dopar% {
 		runGlmNow = runGlmSexOne
 		runCoxphNow = runCoxphSexOne}
 
-	inputGlmBase = makeInputGlm(phenoDataNow, gridData, genoData$genoFull, minEvents, whichSex)
-	inputCoxBase = makeInputCox(phenoDataNow, gridData, genoData$genoFull, minEvents, buffer, whichSex)
+	inputBase = makeInput(phenoDataNow, gridData, genoData$genoFull, whichSex, minEvents, buffer)
 
 	resultNow = foreach(snp = snps, .combine = rbind) %do% {
-		inputGlm = addSnpToInput(inputGlmBase, genoData$genoFull, snp)
-		glmFit = runGlmNow(inputGlm)
-
-		inputCox = addSnpToInput(inputCoxBase, genoData$genoFull, snp)
-		coxFit = runCoxphNow(inputCox)
-
+		inputNow = addSnpToInput(inputBase, genoData$genoFull, snp)
+		glmFit = runGlmNow(inputNow)
+		coxFit = runCoxphNow(inputNow)
 		rbind(coef(summary(glmFit))[2, 1:3], coef(summary(coxFit))[1, c(1, 3:4)])}
-
-	# colnames(resultNow) = c('coef', 'se', 'z')
-	# resultNow = as_tibble(resultNow)
-	# # pvals from speedglm are encoded as factors, and coxph sets small pvals to zero.
-	# resultNow$pval = 2 * pnorm(-abs(resultNow$z))
-	# resultNow$method = rep.int(c('logistic', 'cox'), times = length(snps))
-	# resultNow$snp = rep(snps, each = 2)
-	# resultNow$phecode = phecode
-	# rownames(resultNow) = NULL
 
 	setDT(resultNow)
 	colnames(resultNow) = c('coef', 'se', 'z')
-	# pvals from speedglm are encoded as factors, and coxph sets small pvals to zero.
+
+	# speedglm encodes pvals as factors, and coxph sets small pvals to zero.
 	resultNow[, pval := 2 * pnorm(-abs(z))]
 	resultNow[, method := rep.int(c('logistic', 'cox'), times = length(snps))]
 	resultNow[, snp := rep(snps, each = 2)]
-	resultNow[, phecode := phenoLoop[ii, phecode]]
+	resultNow[, phecode := phenoLoop$phecode[ii]]
 
 	filename = sprintf('%s_phe%s.csv.gz', filePrefix, gsub('.', 'p', phecode, fixed = TRUE))
 	write_csv(resultNow, gzfile(file.path(resultDir, filename)))

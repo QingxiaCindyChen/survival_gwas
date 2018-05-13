@@ -3,33 +3,13 @@ source(file.path('analyze', 'analyze_setup.R'))
 analysisDir = 'exome_full'
 filePrefix = 'exome'
 
-# ensures that plotting uses the exact same data used in the analysis,
+# ensures that plotting uses exactly the same data used in the analysis,
 # including gridData, phenoData, snpData, and all parameters and functions
 load(file.path(resultDir, analysisDir, sprintf('%s_workspace.Rdata', filePrefix)))
 
-# minEvents = 2
-# buffer = 1 # years, used for cox regression
-#
-# minRecLen = 0 # years
-# gridData = setDT(read_csv(file.path(procDir, 'grid_data.csv.gz'), col_types = 'ccDDD'))
-# gridData[, first_age := time_length(first_entry_date - dob, 'years')]
-# gridData[, last_age := time_length(last_entry_date - dob, 'years')]
-# gridData[, rec_len := last_age - first_age]
-# gridData = gridData[first_age >= 0 & rec_len >= minRecLen,]
-#
-# minGrids = 50
-# phenoData = setDT(read_csv(file.path(procDir, 'phenotype_data.csv.gz'), col_types = 'cDc'))
-# phenoData = phenoData[, if (length(unique(grid)) >= minGrids) .SD, by = phecode]
-# phenoData = phenoData[order(grid, phecode, entry_date), .(grid, phecode, entry_date)]
-#
-# snpData = setDT(read_csv(file.path(procDir, 'exome_map.csv.gz'), col_types = cols()))
-# snpData = snpData[,.(snp = snp.name, chr = chromosome, pos = position)]
-
-genoData = readRDS(file.path(procDir, 'genotype_data_exome.rds'))
+genoData = readRDS(file.path(procDir, 'exome_genotype_data.rds'))
 
 ############################################################
-
-# files = list.files(file.path(resultDir, analysisDir), pattern = '\\.csv\\.gz$')
 
 result = foreach(filename = gwasFilenames, .combine = rbind) %do% {
 	read_csv(file.path(resultDir, analysisDir, filename), col_types = '??????c')}
