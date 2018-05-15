@@ -14,7 +14,7 @@ phecodeData = setDT(read_csv(file.path(procDir, 'phecode_definitions1.2.csv'), c
 phecodeData = phecodeData[,.(phecode = jd_code,
 									  phenotype = jd_string,
 									  controlExcludeRange = jd_control_exclude_range,
-									  whichSex = tolower(ifelse(sex == '', 'both', sex)),
+									  whichSex = tolower(ifelse(sex == '' | is.na(sex), 'both', sex)),
 									  rollup, leaf)]
 
 ############################################################
@@ -58,36 +58,30 @@ addSnpToInput = function(input, genoFull, snpName) {
 	input[!is.na(snp),]}
 
 
-# expected colnames in phenoData: grid, age
-# expected colnames in gridData: grid, last_age, rec_len
-# makeInputGlm = function(phenoData, gridData, genoFull, whichSex, minEvents) {
-# 	pheno = phenoData[, .N, by = .(grid)]
-# 	pheno = pheno[is.na(N) | (N >= minEvents),]
-#
-# 	input = data.table(grid = genoFull$fam$pedigree, sex = genoFull$fam$sex)
-# 	input = filterInputBySex(input, whichSex)
-# 	input = merge(input, gridData, by = 'grid')
-# 	input = merge(input, pheno, by = 'grid', all.x = TRUE)
-# 	input[, status := ifelse(is.na(N), 0, 1)]
-# 	input}
+getGlmStr = function(whichSex = 'both', nPC = 3, splineDf = 4) {
+	formStr = sprintf('status ~ snp + rec_len + splines::ns(last_age, df = %d)', splineDf)
+	if (whichSex == 'both') {
+		formStr = paste(formStr, '+ sex')}
+	if (nPC > 0) {
+		formStr = paste(formStr, '+', paste0('PC', 1:nPC, collapse = ' + '))}
+	formStr}
 
 
-# expected colnames in input: grid, sex, last_age, rec_len, status
-runGlmSexBoth = function(input, splineDf = 4) {
-	speedglm(status ~ snp + sex + rec_len + splines::ns(last_age, df = splineDf),
-				family = binomial(), data = input)}
+getCoxStr = function(whichSex = 'both', nPC = 3) {
+	formStr = 'Surv(age1, age2, status) ~ snp'
+	if (whichSex == 'both') {
+		formStr = paste(formStr, '+ sex')}
+	if (nPC > 0) {
+		formStr = paste(formStr, '+', paste0('PC', 1:nPC, collapse = ' + '))}
+	formStr}
 
-runGlmSexOne = function(input, splineDf = 4) {
-	speedglm(status ~ snp + rec_len + splines::ns(last_age, df = splineDf),
-				family = binomial(), data = input)}
+
+runGlm = function(formulaStr, input) {
+	speedglm(formula(formulaStr), family = binomial(), data = input)}
 
 
-# expected colnames in input: grid, sex, age1, age2, status
-runCoxphSexBoth = function(input) {
-	coxph(Surv(age1, age2, status) ~ snp + sex, data = input)}
-
-runCoxphSexOne = function(input) {
-	coxph(Surv(age1, age2, status) ~ snp, data = input)}
+runCox = function(formulaStr, input) {
+	coxph(formula(formulaStr), data = input)}
 
 
 makeSurvPlotDataframe = function(fit, data, variable = NULL) {

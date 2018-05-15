@@ -4,7 +4,9 @@ filePrefix = 'exome'
 
 minEvents = 2
 maxAgeAtEvent = 90 # years; dates in the SD after this age are untrustworthy
-buffer = 1 # years; used for cox regression
+nPC = 2
+buffer = 1 # years; for calculating age1 for cox regression
+splineDf = 4 # for last_age in logistic regression
 
 # load grid data
 minRecLen = 0 # years
@@ -14,6 +16,12 @@ gridData[, first_age := time_length(first_entry_date - dob, 'years')]
 gridData[, last_age := time_length(last_entry_date - dob, 'years')]
 gridData[, rec_len := last_age - first_age]
 gridData = gridData[first_age >= 0 & rec_len >= minRecLen,]
+
+# load PC data
+pcData = setDT(read_tsv(file.path(procDir, 'demos_Ws_PCs_aims_only.txt'), col_types = cols()))
+colnames(pcData)[1] = 'grid'
+if (nPC > 0) {
+	gridData = merge(gridData, pcData, by = 'grid')}
 
 # load snp data
 minMaf = 0.01
@@ -39,7 +47,7 @@ phenoData = phenoData[order(grid, phecode, entry_date), .(grid, phecode, entry_d
 # testing
 
 # phenoData = phenoData[phecode %in% c('274.1', '714.1', '335', '185', '427.21', '290.11'),]
-# snps = unique(read_csv(file.path(resultDir, 'exome_pilot_top20.csv'))$snp)
+# snps = unique(read_csv(file.path(resultDir, 'exome_pilot_top20.csv'), col_types = cols())$snp)
 
 ############################################################
 
@@ -63,19 +71,14 @@ gwasFilenames = foreach(ii = 1:nrow(phenoLoop), .combine = c) %dopar% {
 	whichSex = phenoLoop$whichSex[ii]
 	phenoDataNow = phenoData[phecode == phenoLoop$phecode[ii], .(grid, age)]
 
-	if (whichSex == 'both') {
-		runGlmNow = runGlmSexBoth
-		runCoxphNow = runCoxphSexBoth
-	} else {
-		runGlmNow = runGlmSexOne
-		runCoxphNow = runCoxphSexOne}
-
 	inputBase = makeInput(phenoDataNow, gridData, genoData$genoFull, whichSex, minEvents, buffer)
+	glmStr = getGlmStr(whichSex, nPC, splineDf)
+	coxStr = getCoxStr(whichSex, nPC)
 
 	resultNow = foreach(snp = snps, .combine = rbind) %do% {
 		inputNow = addSnpToInput(inputBase, genoData$genoFull, snp)
-		glmFit = runGlmNow(inputNow)
-		coxFit = runCoxphNow(inputNow)
+		glmFit = runGlm(glmStr, inputNow)
+		coxFit = runCox(coxStr, inputNow)
 		rbind(coef(summary(glmFit))[2, 1:3], coef(summary(coxFit))[1, c(1, 3:4)])}
 
 	setDT(resultNow)
