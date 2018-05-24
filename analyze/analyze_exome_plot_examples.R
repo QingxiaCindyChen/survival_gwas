@@ -1,7 +1,75 @@
-# exome_compare_pval
-# exome_examples_cumhaz
+source(file.path('analyze', 'analyze_setup.R'))
+
+analysisDir = 'exome_full'
+# analysisDir = 'exome_test_nPC2'
+# analysisDir = 'exome_pilot'
+
+filePrefix = 'exome'
 
 ############################################################
+# ensures that plotting uses exactly the same data used in the analysis,
+# including gridData, phenoData, snpData, and all parameters and functions
+
+load(file.path(resultDir, analysisDir, sprintf('%s_workspace.Rdata', filePrefix)))
+
+gwasFilenames = list.files(file.path(resultDir, analysisDir), pattern = '\\.csv\\.gz$')
+gwasFilenames = c(gwasFilenames[grepl('phe250p[1-2]\\.csv\\.gz', gwasFilenames)],
+						gwasFilenames[grepl('phe290p11\\.csv\\.gz', gwasFilenames)],
+						gwasFilenames[grepl('phe335\\.csv\\.gz', gwasFilenames)])
+
+genoData = readRDS(file.path(procDir, 'exome_genotype_data.rds'))
+
+############################################################
+
+result = foreach(filename = gwasFilenames, .combine = rbind) %do% {
+	setDT(read_csv(file.path(resultDir, analysisDir, filename), col_types = '??????c'))}
+
+result = merge(result, snpData, by = 'snp', sort = FALSE)
+result = merge(result, phecodeData[, .(phecode, phenotype)], by = 'phecode')
+
+############################################################
+
+minGrids = 50
+phenoData = setDT(read_csv(file.path(procDir, sprintf('%s_phenotype_data.csv.gz', filePrefix)),
+									col_types = 'ccD'))
+phenoData = phenoData[, if (length(unique(grid)) >= minGrids) .SD, by = phecode]
+phenoData = phenoData[order(grid, phecode, entry_date), .(grid, phecode, entry_date)]
+
+phenoData = merge(phenoData, gridData, by = 'grid')
+phenoData[, age := time_length(entry_date - dob, 'years')]
+phenoData = phenoData[age <= maxAgeAtEvent,]
+
+
+
+
+phecodeNow = '250.1'
+snpNow = 'rs9275495'
+
+# phecodeNow = '250.2'
+# snpNow = 'rs7903146'
+
+# phecodeNow = '290.11'
+# snpNow = 'rs769449'
+
+whichSexNow = phecodeData[phecode == phecodeNow, whichSex]
+phenoDataNow = phenoData[phecode == phecodeNow, .(grid, age)]
+
+inputBase = makeInput(phenoDataNow, gridData, genoData$genoFull, whichSexNow, minEvents, buffer)
+inputNow = addSnpToInput(inputBase, genoData$genoFull, snpNow)
+
+coxStr = getCoxStr(whichSexNow, 0)
+a = survfit(as.formula(coxStr), data = inputNow)
+
+p = survminer::ggsurvplot(a)
+pdf('example_phe250p1_rs9275495.pdf', width = 5, height = 4)
+p
+dev.off()
+
+
+############################################################
+
+# exome_compare_pval
+# exome_examples_cumhaz
 
 # resultSpread = result %>%
 # 	mutate(negLog10Pval = -log10(pval)) %>%

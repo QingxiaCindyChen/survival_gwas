@@ -11,11 +11,11 @@ procDir = 'processed'
 resultDir = 'results'
 
 phecodeData = setDT(read_csv(file.path(procDir, 'phecode_definitions1.2.csv'), col_types = 'ccc???'))
-phecodeData = phecodeData[,.(phecode = jd_code,
-									  phenotype = jd_string,
-									  controlExcludeRange = jd_control_exclude_range,
-									  whichSex = tolower(ifelse(sex == '' | is.na(sex), 'both', sex)),
-									  rollup, leaf)]
+phecodeData = phecodeData[, .(phecode = jd_code,
+										phenotype = jd_string,
+										controlExcludeRange = jd_control_exclude_range,
+										whichSex = tolower(ifelse(sex == '' | is.na(sex), 'both', sex)),
+										rollup, leaf)]
 
 ############################################################
 
@@ -25,28 +25,22 @@ theme_set(theme_light() +
 			 			panel.grid.minor = eb, legend.margin = margin(t = 0, r = 0, b = 0, l = 0, unit = 'cm')))
 
 
-filterInputBySex = function(input, whichSex) {
-	if (whichSex == 'male') {
-		input[sex == 1,]
-	} else if (whichSex == 'female') {
-		input[sex == 2,]
-	} else {
-		input}}
-
-
 # expected colnames in phenoData: grid, age
 # expected colnames in gridData: grid, first_age, last_age
-makeInput = function(phenoData, gridData, genoFull, whichSex, minEvents, buffer) {
-	phenoCase = merge(phenoData, gridData[, .(grid)], by = 'grid')
+makeInput = function(phenoData, gridData, whichSex, minEvents, buffer) {
+	phenoCase = phenoData
 	setkeyv(phenoCase, c('grid', 'age'))
 	phenoCase = phenoCase[, if (.N >= minEvents) .SD[minEvents,], by = grid]
 	phenoControl = fsetdiff(gridData[, .(grid)], phenoData[, .(grid)])
 
-	pheno = rbind(phenoCase, phenoControl, fill = TRUE)
-	pheno = merge(pheno, gridData, by = 'grid')
+	input = rbind(phenoCase, phenoControl, fill = TRUE)
+	input = merge(input, gridData, by = 'grid')
 
-	input = data.table(grid = genoFull$fam$pedigree, sex = genoFull$fam$sex)
-	input = merge(input, pheno, by = 'grid')
+	if (whichSex == 'male') {
+		input = input[sex == 1]
+	} else if (whichSex == 'female') {
+		input = input[sex == 2]}
+
 	input[, status := ifelse(is.na(age), 0, 1)]
 	input[, age2 := ifelse(status, age, last_age)]
 	input[, age1 := min(first_age, max(0, age2 - buffer)), by = grid]
@@ -58,8 +52,12 @@ addSnpToInput = function(input, genoFull, snpName) {
 	input[!is.na(snp),]}
 
 
+# addSnpToInput1 = function(input, genoFlat, snpName) {
+# 	merge(input, genoFlat[snpId == snpName], by = 'grid')}
+
+
 getGlmStr = function(whichSex = 'both', nPC = 3, splineDf = 4) {
-	formStr = sprintf('status ~ snp + rec_len + splines::ns(last_age, df = %d)', splineDf)
+	formStr = sprintf('status ~ snp + rec_len + %s', paste0('last_age', 1:splineDf, collapse = ' + '))
 	if (whichSex == 'both') {
 		formStr = paste(formStr, '+ sex')}
 	if (nPC > 0) {

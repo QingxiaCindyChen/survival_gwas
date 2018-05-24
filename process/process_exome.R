@@ -1,11 +1,15 @@
-library('data.table')
-library('readr')
-library('RODBC')
-library('snpStats')
+library(data.table)
+library(readr)
+library(RODBC)
+library(snpStats)
+library(SNPRelate)
 
 gridSet = 'LB_EXOME'
 procDir = 'processed'
 filePrefix = 'exome'
+
+genotypeDir = '../genotype_data/exome'
+genoPrefix = 'Exome_GRID_Euro'
 
 phecodeIcdMapping = fread(file.path(procDir, 'phecode_icd9_map_unrolled.csv'))
 setnames(phecodeIcdMapping, old = 'icd9', new = 'icd')
@@ -69,9 +73,31 @@ write_csv(gridData, gzfile(file.path(procDir, sprintf('%s_grid_data.csv.gz', fil
 
 ############################################################
 
-genotypeDir = '../genotype_data/exome'
-genoFull = read.plink(file.path(genotypeDir, 'Exome_GRID_Euro'))
+genoFull = read.plink(file.path(genotypeDir, genoPrefix))
 genoSummary = col.summary(genoFull$genotypes)
 
 saveRDS(list(genoFull = genoFull, genoSummary = genoSummary),
 		  file.path(procDir, sprintf('%s_genotype_data.rds', filePrefix)))
+
+snpgdsBED2GDS(file.path(genotypeDir, paste0(genoPrefix, '.bed')),
+				  file.path(genotypeDir, paste0(genoPrefix, '.fam')),
+				  file.path(genotypeDir, paste0(genoPrefix, '.bim')),
+				  file.path(genotypeDir, paste0(genoPrefix, '.gds')))
+genoFile = snpgdsOpen(file.path(genotypeDir, paste0(genoPrefix, '.gds')))
+
+minMaf = 0.01
+minCallRate = 0.95
+minHwePval = 0.001
+idx = (genoSummary$MAF >= minMaf) &
+	(genoSummary$Call.rate >= minCallRate) &
+	(2 * pnorm(-abs(genoSummary$z.HWE)) >= minHwePval)
+
+aims = read_csv(file.path(procDir, 'exome_aims.txt'), col_names = FALSE, col_types = cols())$X1
+snps = intersect(colnames(genoFull$genotypes)[idx], aims)
+
+pcaResult = snpgdsPCA(genoFile, snp.id = snps, eigen.cnt = 10, num.thread = 8, algorithm = 'randomized')
+
+pcData = data.table(pcaResult$sample.id, pcaResult$eigenvect)
+colnames(pcData) = c('grid', paste0('PC', 1:ncol(pcaResult$eigenvect)))
+
+write_csv(pcData, gzfile(file.path(procDir, sprintf('%s_pc_data.csv.gz', filePrefix))))
