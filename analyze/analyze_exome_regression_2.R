@@ -105,10 +105,12 @@ phecodeDataKeep[, coxFilename := sprintf('%s_%s_cox.tsv.gz', filePrefix, phecode
 phecodeDataKeep[, logisticFilename := sprintf('%s_%s_logistic.tsv', filePrefix, phecodeStr)]
 phecodeDataKeep[, covarNum := paste0('1-', ncol(covarData) - ifelse(whichSex == 'both', 2, 3))]
 
+phecodeDataKeep = phecodeDataKeep[(1 + round(nrow(phecodeDataKeep) / 2)):nrow(phecodeDataKeep)]
+
 ############################################################
 # run cox regression
 
-logFilepath = file.path(resultDir, sprintf('%s_progress_cox.txt', filePrefix))
+logFilepath = file.path(resultDir, sprintf('%s_progress_cox_2.txt', filePrefix))
 timeStarted = Sys.time()
 cat(sprintf('%s started analysis\n', timeStarted), file = logFilepath)
 
@@ -160,7 +162,7 @@ plinkArgs = sprintf('%s --bfile %s --extract %s --covar %s --pheno %s --1 --memo
 						  '--logistic hide-covar beta --ci 0.95', file.path(genoDir, genoPrefix),
 						  snpFilepath, covarFilepath, phenoFilepath, plinkMemSize)
 
-logFilepath = file.path(resultDir, sprintf('%s_progress_logistic.txt', filePrefix))
+logFilepath = file.path(resultDir, sprintf('%s_progress_logistic_2.txt', filePrefix))
 timeStarted = Sys.time()
 cat(sprintf('%s started analysis\n', timeStarted), file = logFilepath)
 
@@ -195,4 +197,4 @@ cat(sprintf('Time elapsed of %.2f %s\n', timeElapsed, attr(timeElapsed, 'units')
 	 file = logFilepath, append = TRUE)
 
 save(list = setdiff(ls(), 'genoData'),
-	  file = file.path(resultDir, sprintf('%s_workspace.Rdata', filePrefix)))
+	  file = file.path(resultDir, sprintf('%s_workspace_2.Rdata', filePrefix)))

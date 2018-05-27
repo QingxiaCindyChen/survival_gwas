@@ -52,17 +52,13 @@ addSnpToInput = function(input, genoFull, snpName) {
 	input[!is.na(snp),]}
 
 
-# addSnpToInput1 = function(input, genoFlat, snpName) {
-# 	merge(input, genoFlat[snpId == snpName], by = 'grid')}
-
-
-getGlmStr = function(whichSex = 'both', nPC = 3, splineDf = 4) {
-	formStr = sprintf('status ~ snp + rec_len + %s', paste0('last_age', 1:splineDf, collapse = ' + '))
-	if (whichSex == 'both') {
-		formStr = paste(formStr, '+ sex')}
-	if (nPC > 0) {
-		formStr = paste(formStr, '+', paste0('PC', 1:nPC, collapse = ' + '))}
-	formStr}
+# getGlmStr = function(whichSex = 'both', nPC = 3, splineDf = 4) {
+# 	formStr = sprintf('status ~ snp + rec_len + %s', paste0('last_age', 1:splineDf, collapse = ' + '))
+# 	if (whichSex == 'both') {
+# 		formStr = paste(formStr, '+ sex')}
+# 	if (nPC > 0) {
+# 		formStr = paste(formStr, '+', paste0('PC', 1:nPC, collapse = ' + '))}
+# 	formStr}
 
 
 getCoxStr = function(whichSex = 'both', nPC = 3) {
@@ -74,47 +70,47 @@ getCoxStr = function(whichSex = 'both', nPC = 3) {
 	formStr}
 
 
-runGlm = function(formulaStr, input) {
-	speedglm(formula(formulaStr), family = binomial(), data = input)}
+# runGlm = function(formulaStr, input) {
+# 	speedglm(formula(formulaStr), family = binomial(), data = input)}
 
 
 runCox = function(formulaStr, input) {
 	coxph(formula(formulaStr), data = input)}
 
 
-makeSurvPlotDataframe = function(fit, data, variable = NULL) {
-	# adapted from survminer
-	if (is.null(variable)) {
-		pred = survexp(~ 1, data = data, ratetable = fit)
-		d = data.frame(time = c(0, pred$time), surv = c(1, pred$surv))
-
-	} else {
-		lev = sort(unique(data[[variable]]))
-		df0 = data
-		df0[[variable]] = '_reference_' # collision unlikely, but not impossible
-		form = update(formula(fit), as.formula(sprintf('%s ~ . - %s', variable, variable)))
-		environment(form) = parent.frame()
-
-		rwt = numeric(nrow(data))
-		for (level in lev) {
-			idx = which(data[[variable]] == level)
-			if (length(idx) > 0) {
-				df1 = data[idx,, drop = FALSE]
-				ndf = rbind(df0, df1)
-				ndf[[variable]] = factor(ndf[[variable]])
-				model = glm(formula = form, data = ndf, family = binomial)
-				allRes = predict(model, newdata = data, type = 'response')
-				rwt[idx] = 1/allRes[idx]}}
-
-		nform = as.formula(sprintf('%s ~ %s', as.character(formula(fit))[2], variable))
-		nfit = coxph(formula = nform, data = data, weights = rwt)
-		pred = survexp(as.formula(sprintf('~ %s', variable)), data = data, ratetable = nfit)
-
-		if (length(dim(pred$surv)) == 2) {
-			for (ii in 1:ncol(pred$surv)) {
-				for (jj in nrow(pred$surv):2) {
-					if (pred$surv[jj, ii] > pred$surv[jj - 1, ii]) {
-						pred$surv[jj - 1, ii] = 1 }}}}
-
-		d = data.frame(time = rep(c(0, pred$time), length(lev)), surv = c(rbind(1, pred$surv)),
-							value = rep(lev, each = 1 + length(pred$time)))}}
+# makeSurvPlotDataframe = function(fit, data, variable = NULL) {
+# 	# adapted from survminer
+# 	if (is.null(variable)) {
+# 		pred = survexp(~ 1, data = data, ratetable = fit)
+# 		d = data.frame(time = c(0, pred$time), surv = c(1, pred$surv))
+#
+# 	} else {
+# 		lev = sort(unique(data[[variable]]))
+# 		df0 = data
+# 		df0[[variable]] = '_reference_' # collision unlikely, but not impossible
+# 		form = update(formula(fit), as.formula(sprintf('%s ~ . - %s', variable, variable)))
+# 		environment(form) = parent.frame()
+#
+# 		rwt = numeric(nrow(data))
+# 		for (level in lev) {
+# 			idx = which(data[[variable]] == level)
+# 			if (length(idx) > 0) {
+# 				df1 = data[idx,, drop = FALSE]
+# 				ndf = rbind(df0, df1)
+# 				ndf[[variable]] = factor(ndf[[variable]])
+# 				model = glm(formula = form, data = ndf, family = binomial)
+# 				allRes = predict(model, newdata = data, type = 'response')
+# 				rwt[idx] = 1/allRes[idx]}}
+#
+# 		nform = as.formula(sprintf('%s ~ %s', as.character(formula(fit))[2], variable))
+# 		nfit = coxph(formula = nform, data = data, weights = rwt)
+# 		pred = survexp(as.formula(sprintf('~ %s', variable)), data = data, ratetable = nfit)
+#
+# 		if (length(dim(pred$surv)) == 2) {
+# 			for (ii in 1:ncol(pred$surv)) {
+# 				for (jj in nrow(pred$surv):2) {
+# 					if (pred$surv[jj, ii] > pred$surv[jj - 1, ii]) {
+# 						pred$surv[jj - 1, ii] = 1 }}}}
+#
+# 		d = data.frame(time = rep(c(0, pred$time), length(lev)), surv = c(rbind(1, pred$surv)),
+# 							value = rep(lev, each = 1 + length(pred$time)))}}
