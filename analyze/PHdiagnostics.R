@@ -13,7 +13,7 @@ library('dplyr')
 filepath = file.path('/home', 'rhoadesd', 'counting_gwas')
 resultDir = 'results'
 
-source(file.path(filepath, 'analyze', 'analyze_setup.R'))
+source(file.path(filepath, 'analyze', 'analyze_setup_diagnosticsSR.R'))
 
 filePrefix = 'exome'
 
