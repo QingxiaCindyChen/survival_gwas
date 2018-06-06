@@ -16,29 +16,29 @@ setnames(phecodeIcdMapping, old = 'icd9', new = 'icd')
 
 phecodeData = fread(file.path(procDir, 'phecode_definitions1.2.csv'))
 phecodeData = phecodeData[,.(phecode = jd_code,
-									  phenotype = jd_string,
-									  controlExcludeRange = jd_control_exclude_range,
-									  whichSex = tolower(ifelse(sex == '', 'both', sex)),
-									  rollup, leaf)]
+                             phenotype = jd_string,
+                             controlExcludeRange = jd_control_exclude_range,
+                             whichSex = tolower(ifelse(sex == '', 'both', sex)),
+                             rollup, leaf)]
 
 con = odbcConnect('NZSQL', believeNRows = FALSE)
 
 ############################################################
 
 getPhenoRaw = function(con, icds, gridSet) {
-	queryStr = sprintf("select distinct a.GRID, a.CODE as icd, a.ENTRY_DATE
-							 from ICD_CODES a
-							 inner join %s b
-							 on a.GRID = b.GRID
-							 where a.CODE in ('%s')
-							 and b.EURO = 1
-							 order by a.GRID, a.ENTRY_DATE;",
-							 gridSet, paste(icds, collapse="','"))
-	queryStr = gsub(pattern = '\\s+', replacement = ' ', x = queryStr)
-	d = setDT(sqlQuery(con, queryStr, stringsAsFactors = FALSE, as.is = TRUE))
-	colnames(d) = tolower(colnames(d))
-	d[, entry_date := as.Date(entry_date)]
-	d}
+  queryStr = sprintf("select distinct a.GRID, a.CODE as icd, a.ENTRY_DATE
+                     from ICD_CODES a
+                     inner join %s b
+                     on a.GRID = b.GRID
+                     where a.CODE in ('%s')
+                     and b.EURO = 1
+                     order by a.GRID, a.ENTRY_DATE;",
+                     gridSet, paste(icds, collapse="','"))
+  queryStr = gsub(pattern = '\\s+', replacement = ' ', x = queryStr)
+  d = setDT(sqlQuery(con, queryStr, stringsAsFactors = FALSE, as.is = TRUE))
+  colnames(d) = tolower(colnames(d))
+  d[, entry_date := as.Date(entry_date)]
+  d}
 
 icds = unique(phecodeIcdMapping[phecode %in% phecodeData$phecode, icd]) # in case phecodeData is a subset
 phenoRaw = getPhenoRaw(con, icds, gridSet)
@@ -52,15 +52,15 @@ write_csv(phenoMapped, gzfile(file.path(procDir, sprintf('%s_phenotype_data.csv.
 ############################################################
 
 queryStr = sprintf('select a.GRID, c.GENDER_EPIC as gender, c.DOB,
-						 min(a.ENTRY_DATE) as FIRST_ENTRY_DATE, max(a.ENTRY_DATE) as LAST_ENTRY_DATE
-						 from ICD_CODES a
-						 inner join %s b
-						 on a.GRID = b.GRID
-						 inner join SD_RECORD c
-						 on a.GRID = c.GRID
-						 where b.EURO = 1
-						 group by a.GRID, c.GENDER_EPIC, c.DOB;',
-						 gridSet)
+                   min(a.ENTRY_DATE) as FIRST_ENTRY_DATE, max(a.ENTRY_DATE) as LAST_ENTRY_DATE
+                   from ICD_CODES a
+                   inner join %s b
+                   on a.GRID = b.GRID
+                   inner join SD_RECORD c
+                   on a.GRID = c.GRID
+                   where b.EURO = 1
+                   group by a.GRID, c.GENDER_EPIC, c.DOB;',
+                   gridSet)
 queryStr = gsub(pattern = '\\s+', replacement = ' ', x = queryStr)
 
 gridData = setDT(sqlQuery(con, queryStr, stringsAsFactors = FALSE, as.is = TRUE))
@@ -77,20 +77,20 @@ genoFull = read.plink(file.path(genotypeDir, genoPrefix))
 genoSummary = col.summary(genoFull$genotypes)
 
 saveRDS(list(genoFull = genoFull, genoSummary = genoSummary),
-		  file.path(procDir, sprintf('%s_genotype_data.rds', filePrefix)))
+        file.path(procDir, sprintf('%s_genotype_data.rds', filePrefix)))
 
 snpgdsBED2GDS(file.path(genotypeDir, paste0(genoPrefix, '.bed')),
-				  file.path(genotypeDir, paste0(genoPrefix, '.fam')),
-				  file.path(genotypeDir, paste0(genoPrefix, '.bim')),
-				  file.path(genotypeDir, paste0(genoPrefix, '.gds')))
+              file.path(genotypeDir, paste0(genoPrefix, '.fam')),
+              file.path(genotypeDir, paste0(genoPrefix, '.bim')),
+              file.path(genotypeDir, paste0(genoPrefix, '.gds')))
 genoFile = snpgdsOpen(file.path(genotypeDir, paste0(genoPrefix, '.gds')))
 
 minMaf = 0.01
 minCallRate = 0.95
 minHwePval = 0.001
 idx = (genoSummary$MAF >= minMaf) &
-	(genoSummary$Call.rate >= minCallRate) &
-	(2 * pnorm(-abs(genoSummary$z.HWE)) >= minHwePval)
+  (genoSummary$Call.rate >= minCallRate) &
+  (2 * pnorm(-abs(genoSummary$z.HWE)) >= minHwePval)
 
 aims = read_csv(file.path(procDir, 'exome_aims.txt'), col_names = FALSE, col_types = cols())$X1
 snps = intersect(colnames(genoFull$genotypes)[idx], aims)

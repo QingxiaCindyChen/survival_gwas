@@ -1,9 +1,6 @@
 source(file.path('analyze', 'analyze_setup.R'))
 
-# analysisDir = 'exome_full'
-analysisDir = 'exome_test'
-# analysisDir = 'exome_pilot'
-
+analysisDir = 'exome_full'
 filePrefix = 'exome'
 
 ############################################################
@@ -11,38 +8,72 @@ filePrefix = 'exome'
 # including gridData, phenoData, snpData, and all parameters and functions
 
 load(file.path(resultDir, analysisDir, sprintf('%s_workspace.Rdata', filePrefix)))
+# resultDir = 'results'
 
-# genoData = readRDS(file.path(procDir, 'exome_genotype_data.rds'))
+genoData = readRDS(file.path(procDir, sprintf('%s_genotype_data.rds', filePrefix)))
+snpData = merge(snpData, data.table(snp = rownames(genoData$genoSummary), genoData$genoSummary), by = 'snp')
+
+# phecodeDataKeep = phecodeDataKeepOrig[phecode %in% c('274.1', '714.1', '335', '185', '427.21', '290.11')]
 
 ############################################################
 
-result = foreach(filename = phecodeDataKeep$filename, .combine = rbind) %do% {
-	setDT(read_csv(file.path(resultDir, analysisDir, filename), col_types = '??????c'))
-}
+registerDoParallel(cores = 2)
 
+maxPvalLoad = 1e-3
+
+resultList = foreach(ii = 1:nrow(phecodeDataKeep)) %dopar% {
+  coxFilepath = file.path(resultDir, analysisDir, phecodeDataKeep$coxFilename[ii])
+  dCox = setDT(read_tsv(coxFilepath, col_types = 'ddddc')) # col_type 'n' chokes on exponential notation
+  dCox[, beta := -beta] # coefficients from coxph are for the major allele
+  dCox[, method := 'cox']
+
+  logisticFilepath = file.path(resultDir, analysisDir, phecodeDataKeep$logisticFilename[ii])
+  dLogistic = setDT(read_tsv(logisticFilepath, col_types = 'dcdccddddddd'))
+  colnames(dLogistic) = tolower(colnames(dLogistic))
+  dLogistic = dLogistic[, .(beta, se, z = stat, pval = p, snp = snp, method = 'logistic')]
+
+  # if (!is.na(phecodeDataKeep$logisticFilename2[ii])) {
+  #   glmFilepath = file.path(resultDir, analysisDir, phecodeDataKeep$logisticFilename2[ii])
+  #   dGlm = setDT(read_tsv(glmFilepath, col_types = 'ddddc'))
+  #   dGlm[, beta := -beta]
+  #   dGlm[, method:= 'logistic']
+  #   dLogistic = rbind(dLogistic[!(snp %in% dGlm$snp)], dGlm)}
+
+  d = rbind(dCox, dLogistic)
+  d[, phecode := phecodeDataKeep$phecode[ii]]
+  dLambda = d[, .(lambdaMed = median(z^2, na.rm = TRUE) / qchisq(0.5, 1)), by = .(phecode, method)]
+
+  d = d[, if (mean(log(pval), na.rm = TRUE) <= log(maxPvalLoad)) .SD, by = snp]
+  list(d, dLambda)}
+
+result = rbindlist(lapply(resultList, function(d) d[[1]]), use.names = TRUE)
 result = merge(result, snpData, by = 'snp', sort = FALSE)
 result = merge(result, phecodeData[, .(phecode, phenotype)], by = 'phecode')
+result = merge(result, phecodeDataKeep[, .(phecode, nCases)], by = 'phecode')
+
+resultLambda = rbindlist(lapply(resultList, function(d) d[[2]]), use.names = TRUE)
+resultLambda = dcast(resultLambda, phecode ~ method, value.var = 'lambdaMed')
 
 ############################################################
 
-r = unique(result[, .(phecode, phenotype, method)])
-
-done = foreach(ii = 1:nrow(r)) %do% {
-	resultNow = merge(result, r[ii,], by = colnames(r))
-
-	plotTitle = sprintf('%s (%s), %s regression', r$phenotype[ii], r$phecode[ii], r$method[ii])
-	pheFileText = gsub('.', 'p', r$phecode[ii], fixed = TRUE)
-
-	filename = sprintf('%s_phe%s_%s_man.pdf', filePrefix, pheFileText, r$method[ii])
-	pdf(file.path(resultDir, analysisDir, filename), width = 6, height = 4)
-	manhattan(resultNow, p = 'pval', snp = 'snp', chr = 'chr', bp = 'pos', main = plotTitle)
-	dev.off()
-
-	filename = sprintf('%s_phe%s_%s_qq.pdf', filePrefix, pheFileText, r$method[ii])
-	pdf(file.path(resultDir, analysisDir, filename), width = 6, height = 4)
-	qq(resultNow$pval, main = plotTitle)
-	dev.off()
-}
+# r = unique(result[, .(phecode, phenotype, method)])
+#
+# done = foreach(ii = 1:nrow(r)) %do% {
+#   resultNow = merge(result, r[ii,], by = colnames(r))
+#
+#   plotTitle = sprintf('%s (%s), %s regression', r$phenotype[ii], r$phecode[ii], r$method[ii])
+#   pheFileText = gsub('.', 'p', r$phecode[ii], fixed = TRUE)
+#
+#   filename = sprintf('%s_phe%s_%s_man.pdf', filePrefix, pheFileText, r$method[ii])
+#   pdf(file.path(resultDir, analysisDir, filename), width = 6, height = 4)
+#   manhattan(resultNow, p = 'pval', snp = 'snp', chr = 'chr', bp = 'pos', main = plotTitle)
+#   dev.off()
+#
+#   filename = sprintf('%s_phe%s_%s_qq.pdf', filePrefix, pheFileText, r$method[ii])
+#   pdf(file.path(resultDir, analysisDir, filename), width = 6, height = 4)
+#   qq(resultNow$pval, main = plotTitle)
+#   dev.off()
+# }
 
 ############################################################
 
@@ -57,73 +88,79 @@ lnCol = 'gray'
 
 # hazard ratios are extremely similar to odds ratios
 maxPval = 1e-5
-resultSig = result[, if (mean(-log(pval)) >= -log(maxPval)) .SD, by = .(phecode, snp)]
-
-# coefficients are based on major allele counts
-resultSig[, c('logRatio', 'negLogPval') := .(log2(exp(-coef)), -log10(pval))]
-
+resultSig = result[, if (mean(-log(pval), na.rm = TRUE) >= -log(maxPval)) .SD, by = .(phecode, snp)]
+resultSig[, c('logRatio', 'negLogPval') := .(log2(exp(beta)), -log10(pval))]
 resultSigEffect = dcast(resultSig, phecode + snp ~ method, value.var = 'logRatio')
 
 p = ggplot(resultSigEffect) +
-	geom_abline(slope = 1, intercept = 0, color = lnCol, size = lnSz) +
-	geom_point(aes(x = logistic, y = cox), shape = 16, size = 0.5, alpha = ptAlph) +
-	labs(title = 'Effect size', x = 'log2(hazard ratio)', y = 'log2(odds ratio)')
+  geom_abline(slope = 1, intercept = 0, color = lnCol, size = lnSz) +
+  geom_point(aes(x = logistic, y = cox), shape = 16, size = 0.5, alpha = ptAlph) +
+  labs(title = 'Effect size', x = 'log2(hazard ratio)', y = 'log2(odds ratio)')
 
 paramList = list(col = 'white', fill = 'darkgray', size = 0.25)
 p1 = ggExtra::ggMarginal(p, type = 'histogram', binwidth = 0.15, boundary = 0,
-								 xparams = paramList, yparams = paramList)
-
-# p1 = ggplot(resultSigEffect) +
-# 	geom_hline(yintercept = 0, color = lnCol, size = lnSz) +
-# 	geom_point(aes(x = (logistic + cox) / 2, y = cox - logistic), shape = ptShp, size = ptSz, alpha = ptAlph) +
-# 	geom_smooth(aes(x = (logistic + cox) / 2, y = cox - logistic), size = 0.5, method = 'loess') +
-# 	labs(title = 'Effect size', x = 'log2(hazard ratio * odds ratio) / 2',
-# 		  y = 'log2(hazard ratio / odds ratio)') +
-# 	scale_x_continuous(limits = c(-4, 4)) + scale_y_continuous(limits = c(-0.1, 0.1))
+                         xparams = paramList, yparams = paramList)
 
 cor(resultSigEffect$logistic, resultSigEffect$cox, use = 'na.or.complete')
 
 resultSigPval = dcast(resultSig, phecode + snp ~ method, value.var = 'negLogPval')
 p2 = ggplot(resultSigPval) +
-	geom_hline(yintercept = 0, color = lnCol, size = lnSz) +
-	geom_point(aes(x = (logistic + cox) / 2, y = cox - logistic), shape = ptShp, size = ptSz, alpha = ptAlph) +
-	geom_smooth(aes(x = (logistic + cox) / 2, y = cox - logistic), size = 0.5, method = 'loess') +
-	labs(title = '-log10(p)')
+  geom_hline(yintercept = 0, color = lnCol, size = lnSz) +
+  geom_point(aes(x = (logistic + cox) / 2, y = cox - logistic), shape = ptShp, size = ptSz, alpha = ptAlph) +
+  geom_smooth(aes(x = (logistic + cox) / 2, y = cox - logistic), size = 0.5, method = 'loess', span = 0.5) +
+  labs(title = '-log10(p)')
 
 # standard errors are slightly lower for cox
 resultSigSe = dcast(resultSig, phecode + snp ~ method, value.var = 'se')
 p3 = ggplot(resultSigSe) +
-	geom_histogram(aes(x = cox - logistic), binwidth = 0.001, boundary = 0,
-						fill = 'darkgray', color = 'white') +
-	labs(title = 'Standard error') +
-	scale_x_continuous(limits = c(-0.015, 0.005))
+  geom_histogram(aes(x = cox - logistic), binwidth = 0.0005, boundary = 0,
+                 size = 0.25, fill = 'darkgray', color = 'white') +
+  labs(title = 'Standard error') +
+  scale_x_continuous(limits = c(-0.015, 0.005))
 
 # genomic inflation factors are similar or slightly higher
-resultTmp = result[, .(lambdaMed = median(z^2) / qchisq(0.5, 1)), by = .(phecode, method)]
-resultLambda = dcast(resultTmp, phecode ~ method, value.var = 'lambdaMed')
-
 p4 = ggplot(resultLambda) +
-	geom_hline(yintercept = 0, color = lnCol, size = lnSz) +
-	geom_point(aes(x = (logistic + cox) / 2, y = cox - logistic), shape = ptShp, size = ptSz, alpha = ptAlph) +
-	labs(title = 'Lambda median') +
-	scale_x_continuous(limits = c(0.6, NA))
+  geom_hline(yintercept = 0, color = lnCol, size = lnSz) +
+  geom_point(aes(x = (logistic + cox) / 2, y = cox - logistic), shape = ptShp, size = ptSz, alpha = ptAlph) +
+  labs(title = 'Lambda median') +
+  scale_x_continuous(limits = c(0.8, 1.2)) +
+  scale_y_continuous(limits = c(-0.5, 0.5))
 
 p = plot_grid(p1, p2, p3, p4, align = 'hv', axis = 'tb', nrow = 2)
-# p = ggdraw() +
-# 	draw_plot(p1, x = 0, y = 0.5, width = 0.5, height = 0.5) +
-# 	draw_plot(p2, x = 0.5, y = 0.5, width = 0.5, height = 0.5) +
-# 	draw_plot(p3, x = 0, y = 0, width = 0.5, height = 0.5) +
-# 	draw_plot(p4, x = 0.5, y = 0, width = 0.5, height = 0.5)
-ggsave(file.path(resultDir, 'exome_test.pdf'), plot = p, width = 6, height = 5.75)
+ggsave(file.path(resultDir, 'exome_full.pdf'), plot = p, width = 6, height = 5.75)
 
+############################################################
+
+resultSigPval = dcast(resultSig, phecode + snp + MAF + nCases ~ method, value.var = 'negLogPval')
+
+p = ggplot(resultSigPval) +
+  geom_point(aes(x = MAF, y = cox - logistic), shape = ptShp, size = ptSz, alpha = ptAlph) +
+  scale_x_log10()
+print(p)
+
+p = ggplot(resultSigPval) +
+  geom_point(aes(x = nCases, y = cox - logistic), shape = ptShp, size = ptSz, alpha = ptAlph) +
+  geom_smooth(aes(x = nCases, y = cox - logistic), size = 0.5, method = 'loess', span = 0.5) +
+  scale_x_log10()
+print(p)
+
+
+
+
+a = dcast(resultSig, phecode + snp ~ method, value.var = 'negLogPval')
+a = merge(a, resultSig[method == 'cox', .(phecode, snp, logRatio)], by = c('phecode', 'snp'))
+
+p = ggplot(a) +
+  geom_point(aes(x = logRatio, y = cox - logistic), shape = ptShp, size = ptSz, alpha = ptAlph) +
+  geom_smooth(aes(x = logRatio, y = cox - logistic), size = 0.5, method = 'loess', span = 0.5)
+print(p)
 
 
 result1 = dcast(result, phecode + snp ~ method, value.var = 'pval')
 result2 = result1[, .(r = cor(-log10(logistic), -log10(cox))), by = phecode]
 p = ggplot(result2) +
-	# geom_step(aes(x = r, y = 1 - ..y..), stat = 'ecdf')
-	stat_ecdf(aes(x = r), pad = FALSE)
-p
+  stat_ecdf(aes(x = r), pad = FALSE)
+print(p)
 
 
 
@@ -132,5 +169,4 @@ p
 a = merge(resultSigPval[cox - logistic > 1,], phecodeData, by = 'phecode')
 a = merge(a, snpData, by = 'snp')
 a = a[order(cox - logistic, decreasing = TRUE),]
-
 
