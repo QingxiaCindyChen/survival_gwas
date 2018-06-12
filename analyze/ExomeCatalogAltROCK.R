@@ -11,8 +11,8 @@ library('plotROC')
 options(warn = -1)
 
 
-filepath = file.path('/Users', 'srhoades', 'Dropbox (VUMC)/', 'JakeColab_CountingGWAS', 'counting_gwas', 'analyze', 'GWASCatalog')
-#filepath = file.path('..')
+filepath = file.path('/Users', 'srhoades', 'Dropbox (VUMC)/', 'JakeColab_CountingGWAS', 'counting_gwas', 'analyze', 'GWASCatalog', 'exome_full')
+#filepath = file.path('/home', 'rhoadesd', 'counting_gwas', 'analyze', 'results', 'GWASCatalog', 'exome_full')
 
 #GWASCat = read_delim(file = file.path(filepath, 'catalog_phecode_map.txt'), delim = '\t')
 GWASCat = setDT(read_delim(file = file.path(filepath, 'catalog_phecode_map.txt'), delim = '\t', col_types = cols()))
@@ -32,10 +32,14 @@ Logfiles = list.files(file.path(filepath))[c(grep('_logistic.tsv.gz', list.files
 #Get file for phecode of interest, and make sure its matched between cox and logistic
 FilePhecodes = gsub('exome_|_cox.tsv.gz', '', Coxfiles)
 
+#Save yourself some memory/time by only considering the phecodes which exist on the GWASCat
+MatchPhes = gsub('\\.', 'p', GWASCat$jd_code)
+MatchPhes = paste0('phe', MatchPhes)
+FilePhecodes = FilePhecodes[FilePhecodes %in% MatchPhes]
+
 #Now we're interested in recall of the GWAS catalog
 #How many Exome SNPs via Coxph are in the gold standard?
 #True positives = hits on both; false positives = hits only on CoxPH; true negatives = not sig on both; false negatives = hits only on GWAS Cat
-
 #Example
 #RefPhecode = FilePhecodes[3]
 ROC = NULL
@@ -84,6 +88,7 @@ for(code in FilePhecodes){
   ROC = rbind(ROC, ROCtemp)
 }
 
+ROC$pval = as.numeric(ROC$pval)
 #Opposite thresholding since we're using pvals
 ROC$pval = 1 - ROC$pval
 ROCPlot = ggplot(ROC, aes(d = GWAS, m = pval, colour = method)) + geom_roc(n.cuts = 0)+
@@ -101,7 +106,7 @@ ROCPlot = ggplot(ROC, aes(d = GWAS, m = pval, colour = method)) + geom_roc(n.cut
         legend.box.margin = margin(-5, -5, -5, -5), title = element_text(size = 11, face = "bold"), 
         plot.title = element_text(hjust = 0.5))
 ROCPlotOut = ROCPlot + annotate("text", x = 0.8, y = 0.1, label = paste("Cox AUC = ", round(calc_auc(ROCPlot)["AUC"][1, ], 2)))+
-  annotate("text", x = 0.761, y = 0.05, label = paste("Logistic AUC = ", round(calc_auc(ROCPlot)["AUC"][2, ], 2)))
+  annotate("text", x = 0.765, y = 0.05, label = paste("Logistic AUC = ", round(calc_auc(ROCPlot)["AUC"][2, ], 2)))
 
 ggsave(filename = 'MultiPhecodesROC.pdf', path = file.path(filepath), plot = ROCPlotOut, width = 5, height = 3.5, units = c('in'))
 
