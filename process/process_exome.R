@@ -1,8 +1,8 @@
-library(data.table)
-library(readr)
-library(RODBC)
-library(snpStats)
-library(SNPRelate)
+library('data.table')
+library('readr')
+library('RODBC')
+library('snpStats')
+library('SNPRelate')
 
 gridSet = 'LB_EXOME'
 procDir = 'processed'
@@ -14,12 +14,7 @@ genoPrefix = 'Exome_GRID_Euro'
 phecodeIcdMapping = fread(file.path(procDir, 'phecode_icd9_map_unrolled.csv'))
 setnames(phecodeIcdMapping, old = 'icd9', new = 'icd')
 
-phecodeData = fread(file.path(procDir, 'phecode_definitions1.2.csv'))
-phecodeData = phecodeData[,.(phecode = jd_code,
-                             phenotype = jd_string,
-                             controlExcludeRange = jd_control_exclude_range,
-                             whichSex = tolower(ifelse(sex == '', 'both', sex)),
-                             rollup, leaf)]
+phecodeData = setDT(read_csv(file.path(procDir, 'phecode_data.csv.gz'), col_types = 'ccc??????'))
 
 con = odbcConnect('NZSQL', believeNRows = FALSE)
 

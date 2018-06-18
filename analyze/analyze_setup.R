@@ -1,5 +1,5 @@
 library('data.table')
-library('speedglm')
+# library('speedglm')
 library('readr')
 library('lubridate')
 library('doParallel')
@@ -10,12 +10,7 @@ library('qqman')
 procDir = 'processed'
 resultDir = 'results'
 
-phecodeData = setDT(read_csv(file.path(procDir, 'phecode_definitions1.2.csv'), col_types = 'ccc???'))
-phecodeData = phecodeData[, .(phecode = jd_code,
-                              phenotype = jd_string,
-                              controlExcludeRange = jd_control_exclude_range,
-                              whichSex = tolower(ifelse(sex == '' | is.na(sex), 'both', sex)),
-                              rollup, leaf)]
+phecodeData = setDT(read_csv(file.path(procDir, 'phecode_data.csv.gz'), col_types = 'ccc??????'))
 
 ############################################################
 
@@ -65,14 +60,14 @@ runCox = function(formulaStr, input) {
   coxph(formula(formulaStr), data = input)}
 
 
-makeGlmStr = function(whichSex, nPC, splineDf) {
-  formStr = sprintf('status ~ genotype + rec_len + %s', paste0('last_age', 1:splineDf, collapse = ' + '))
-  if (whichSex == 'both') {
-    formStr = paste(formStr, '+ sex')}
-  if (nPC > 0) {
-    formStr = paste(formStr, '+', paste0('PC', 1:nPC, collapse = ' + '))}
-  formStr}
-
-
-runGlm = function(formulaStr, input) {
-  speedglm(formula(formulaStr), family = binomial(), data = input)}
+# makeGlmStr = function(whichSex, nPC, splineDf) {
+#   formStr = sprintf('status ~ genotype + rec_len + %s', paste0('last_age', 1:splineDf, collapse = ' + '))
+#   if (whichSex == 'both') {
+#     formStr = paste(formStr, '+ sex')}
+#   if (nPC > 0) {
+#     formStr = paste(formStr, '+', paste0('PC', 1:nPC, collapse = ' + '))}
+#   formStr}
+#
+#
+# runGlm = function(formulaStr, input) {
+#   speedglm(formula(formulaStr), family = binomial(), data = input)}

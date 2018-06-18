@@ -48,7 +48,7 @@ resultList = foreach(ii = 1:nrow(phecodeDataKeep)) %dopar% {
 
 result = rbindlist(lapply(resultList, function(d) d[[1]]), use.names = TRUE)
 result = merge(result, snpData, by = 'snp', sort = FALSE)
-result = merge(result, phecodeData[, .(phecode, phenotype)], by = 'phecode')
+result = merge(result, phecodeData[, .(phecode, phenotype, group, groupnum, color)], by = 'phecode')
 result = merge(result, phecodeDataKeep[, .(phecode, nCases)], by = 'phecode')
 
 resultLambda = rbindlist(lapply(resultList, function(d) d[[2]]), use.names = TRUE)
@@ -131,19 +131,24 @@ ggsave(file.path(resultDir, 'exome_full.pdf'), plot = p, width = 6, height = 5.7
 
 ############################################################
 
-resultSigPval = dcast(resultSig, phecode + snp + MAF + nCases ~ method, value.var = 'negLogPval')
+resultSigPval = dcast(resultSig, phecode + snp + MAF + nCases + group + color ~ method,
+                      value.var = 'negLogPval')
 
 p = ggplot(resultSigPval) +
-  geom_point(aes(x = MAF, y = cox - logistic), shape = ptShp, size = ptSz, alpha = ptAlph) +
-  scale_x_log10()
+  geom_point(aes(x = log10(MAF), y = cox - logistic), shape = ptShp, size = ptSz, alpha = ptAlph)
 print(p)
 
 p = ggplot(resultSigPval) +
-  geom_point(aes(x = nCases, y = cox - logistic), shape = ptShp, size = ptSz, alpha = ptAlph) +
-  geom_smooth(aes(x = nCases, y = cox - logistic), size = 0.5, method = 'loess', span = 0.5) +
-  scale_x_log10()
+  geom_point(aes(x = log10(nCases), y = cox - logistic), shape = ptShp, size = ptSz, alpha = ptAlph) +
+  geom_smooth(aes(x = log10(nCases), y = cox - logistic), size = 0.5, method = 'loess', span = 0.5)
 print(p)
 
+p = ggplot(resultSigPval) +
+  geom_point(aes(x = log10(nCases), y = cox - logistic, color = group),
+             shape = ptShp, size = ptSz, alpha = ptAlph) +
+  geom_smooth(aes(x = log10(nCases), y = cox - logistic), size = 0.5, method = 'loess', span = 0.5) +
+  guides(color = guide_legend(override.aes = list(size = 2, alpha = 1)))
+print(p)
 
 
 
@@ -161,12 +166,3 @@ result2 = result1[, .(r = cor(-log10(logistic), -log10(cox))), by = phecode]
 p = ggplot(result2) +
   stat_ecdf(aes(x = r), pad = FALSE)
 print(p)
-
-
-
-# a = merge(resultSigPval[((cox + logistic)/2 < 10) & (cox - logistic > 1),], phecodeData, by = 'phecode')
-# a = merge(resultSigPval[logistic - cox > 1,], phecodeData, by = 'phecode')
-a = merge(resultSigPval[cox - logistic > 1,], phecodeData, by = 'phecode')
-a = merge(a, snpData, by = 'snp')
-a = a[order(cox - logistic, decreasing = TRUE),]
-
