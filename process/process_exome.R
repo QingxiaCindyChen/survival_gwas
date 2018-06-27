@@ -11,7 +11,7 @@ filePrefix = 'exome'
 genotypeDir = '../genotype_data/exome'
 genoPrefix = 'Exome_GRID_Euro'
 
-phecodeIcdMapping = fread(file.path(procDir, 'phecode_icd9_map_unrolled.csv'))
+phecodeIcdMapping = setDT(read_csv(file.path(procDir, 'phecode_icd9_map_unrolled.csv'), col_types = 'cc'))
 setnames(phecodeIcdMapping, old = 'icd9', new = 'icd')
 
 phecodeData = setDT(read_csv(file.path(procDir, 'phecode_data.csv.gz'), col_types = 'ccc??????'))
