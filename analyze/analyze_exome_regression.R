@@ -5,7 +5,7 @@ if (testing) {
   resultDir = 'results_test'
 }
 
-registerDoParallel(cores = 20)
+registerDoParallel(cores = 16)
 filePrefix = 'exome'
 
 plinkFilepath = '../plink-1.90b6/plink'
@@ -53,8 +53,8 @@ write_tsv(data.table(snps), snpFilepath, col_names = FALSE)
 ############################################################
 # load grid data
 
-gridData = setDT(read_csv(file.path(procDir, sprintf('%s_grid_data.csv.gz', filePrefix)),
-                          col_types = 'ccDDD'))
+gridData = read_csv(file.path(procDir, sprintf('%s_grid_data.csv.gz', filePrefix)), col_types = 'ccDDD')
+setDT(gridData)
 gridData[, first_age := time_length(first_entry_date - dob, 'years')]
 gridData[, last_age := time_length(last_entry_date - dob, 'years')]
 gridData[, rec_len := last_age - first_age]
@@ -83,8 +83,8 @@ write_tsv(covarData, covarFilepath)
 ############################################################
 # load phenotype data
 
-phenoData = setDT(read_csv(file.path(procDir, sprintf('%s_phenotype_data.csv.gz', filePrefix)),
-                           col_types = 'ccD'))
+phenoData = read_csv(file.path(procDir, sprintf('%s_phenotype_data.csv.gz', filePrefix)), col_types = 'ccD')
+setDT(phenoData)
 
 phenoData = merge(phenoData, gridData[, .(grid, dob, sex)], by = 'grid')
 phenoData[, age := time_length(entry_date - dob, 'years')]
@@ -116,6 +116,8 @@ phecodeDataKeep = merge(phecodeDataKeep, phenoTmp, by = 'phecode')
 # phecodeDataKeep = phecodeDataKeep[1:round(nrow(phecodeDataKeep) / 2)]
 # phecodeDataKeep = phecodeDataKeep[(1 + round(nrow(phecodeDataKeep) / 2)):nrow(phecodeDataKeep)]
 # change names of progress files and workspace file
+
+# phecodeDataKeep = phecodeDataKeep[1:31]
 
 ############################################################
 # run cox regression
