@@ -1,0 +1,31 @@
+filePrefix: 'exome'
+nCores: 2
+snpSubsetFile: 'exome_test1_snps.tsv'
+phecodeSubsetFile: 'exome_test1_phecodes.tsv'
+
+geno: {
+  minMaf: 0.01,
+  minCallRate: 0.95,
+  minHwePval: 0.001
+}
+
+pheno: {
+  minRecLen: 0, # years
+  minEvents: 2, # to be defined as a case; controls have zero events
+  maxAgeAtEvent: 90, # years; dates in the SD after 90 years old are untrustworthy
+  minCases: 50, # to analyze the phecode
+  ageBuffer: 1 # years; for calculating age1 in cox regression
+}
+
+gwas: {
+  nPC: 2, # for both cox and logistic regressio
+  splineDf: 3 # for last_age in logistic regression (ns::splines)
+}
+
+plink: {
+  dataPath: '../genotype_data/exome',
+  dataPrefix: 'Exome_GRID_Euro',
+  execPath: '../plink-1.90b6/plink',
+  memSize: 100, # MB
+  maxVif: 1e7 # reduce plink's tendency to output NA due to multicollinearity of the spline bases
+}
