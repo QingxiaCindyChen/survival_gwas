@@ -1,33 +1,33 @@
 source(file.path('analyze', 'analyze_setup.R'))
 
 cmdArgs = commandArgs(trailingOnly = TRUE)
-
-paramDir = 'params'
-
 if (length(cmdArgs) == 0) {
-  paramFile = 'exome_params.yaml'
+  paramFile = 'exome_test1_params.yaml'
 } else {
   paramFile = cmdArgs[1]}
+
+paramDir = 'params'
 params = read_yaml(file.path(paramDir, paramFile))
+procDir = file.path(procParent, params$datasetName)
+resultDir = file.path(resultParent, params$datasetName,
+                      format(Sys.time(), '%Y%m%d_%H%M%S'))
+
+if (!file.exists(resultDir)) {
+  dir.create(resultDir, recursive = TRUE)}
+write_yaml(params, file.path(resultDir, 'params.yaml'))
 
 registerDoParallel(cores = params$nCores)
-
-
-resultDir = paste0(params$filePrefix, format(Sys.time(), '_%Y%m%d_%H%M%S'))
-if (!file.exists(resultDir)) {
-  dir.create(resultDir)}
 
 ############################################################
 # load snp data
 
-genoKeep = loadGeno(procDir, params$filePrefix, params$geno,
-                    file.path(paramDir, params$snpSubsetFile))
+genoKeep = loadGeno(procDir, params$geno, file.path(paramDir, params$snpSubsetFile))
 
 ############################################################
 # load grid data
 
-gridTmp = loadGrid(procDir, params$filePrefix, params$pheno$minRecLen,
-                   params$gwas$nPC, params$gwas$splineDf, genoKeep$fam)
+gridTmp = loadGrid(procDir, params$pheno$minRecLen, params$gwas$nPC,
+                   params$gwas$splineDf, genoKeep$fam)
 gridData = gridTmp[[1]]
 covarColnames = gridTmp[[2]]
 rm(gridTmp)
@@ -35,7 +35,7 @@ rm(gridTmp)
 ############################################################
 # load phenotype data
 
-phenoTmp = loadPheno(procDir, params$filePrefix, params$pheno, gridData,
+phenoTmp = loadPheno(procDir, params$pheno, gridData,
                      file.path(paramDir, params$phecodeSubsetFile))
 phenoData = phenoTmp[[1]]
 phenoSummary = phenoTmp[[2]]
@@ -43,7 +43,7 @@ rm(phenoTmp)
 
 ############################################################
 
-gwasMetadata = makeGwasMetadata(params$filePrefix, phecodeData, phenoData, phenoSummary)
+gwasMetadata = makeGwasMetadata(phecodeData, phenoData, phenoSummary)
 
 # split analysis across servers
 # gwasMetadata = gwasMetadata[1:round(nrow(gwasMetadata) / 2)]
@@ -53,7 +53,7 @@ gwasMetadata = makeGwasMetadata(params$filePrefix, phecodeData, phenoData, pheno
 ############################################################
 # run cox regression
 
-coxLog = createLogFile(resultDir, params$filePrefix, 'cox')
+coxLog = createLogFile(resultDir, 'cox')
 
 phenoPlinkList = foreach(ii = 1:nrow(gwasMetadata)) %dopar% {
   whichSex = gwasMetadata$whichSex[ii]
@@ -84,18 +84,18 @@ rm(plinkTmp)
 # run logistic regression in plink
 
 plinkArgs = makePlinkArgs(params$plink, plinkPaths)
-plinkLog = createLogFile(resultDir, params$filePrefix, 'logistic')
+plinkLog = createLogFile(resultDir, 'logistic')
 
 done = foreach(ii = 1:nrow(gwasMetadata)) %dopar% {
   # run plink
-  runGwasPlink(resultDir, params$filePrefix, gwasMetadata$phecodeStr[ii],
+  runGwasPlink(resultDir, gwasMetadata$phecodeStr[ii],
                gwasMetadata$covarNum[ii], plinkArgs, params$plink$execPath)
 
   # fix plink's stupid output spacing
-  outputFilepath = cleanPlinkOutput(resultDir, params$filePrefix, gwasMetadata$phecodeStr[ii])
+  outputFile = cleanPlinkOutput(resultDir, gwasMetadata$phecodeStr[ii])
 
   # rename and compress
-  file.rename(outputFilepath, file.path(resultDir, gwasMetadata$logisticFilename[ii]))
+  file.rename(outputFile, file.path(resultDir, gwasMetadata$logisticFilename[ii]))
   system2('gzip', paste('-f', file.path(resultDir, gwasMetadata$logisticFilename[ii])))
 
   appendLogFile(plinkLog, gwasMetadata, ii)}
@@ -105,6 +105,5 @@ finishLogFile(plinkLog)
 
 ############################################################
 
-d = c('genoAll', 'genoKeep', 'phenoPlinkList', 'done', 'd')
-save(list = setdiff(ls(), d),
-     file = file.path(resultDir, sprintf('%s_workspace.Rdata', params$filePrefix)))
+d = c('genoKeep', 'phenoPlinkList', 'done', 'd')
+save(list = setdiff(ls(), d), file = file.path(resultDir, 'workspace.Rdata'))

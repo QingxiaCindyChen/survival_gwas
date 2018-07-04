@@ -8,21 +8,22 @@ library('cowplot')
 library('qqman')
 library('yaml')
 
-procDir = 'processed'
-# resultDir = 'results'
+procParent = 'processed'
+resultParent = 'results'
 
-phecodeData = setDT(read_csv(file.path(procDir, 'phecode_data.csv.gz'), col_types = 'ccc??????'))
+phecodeData = setDT(read_csv(file.path(procParent, 'phecode_data.csv.gz'), col_types = 'ccc??????'))
 
-eb = element_blank()
 theme_set(theme_light() +
-            theme(axis.text = element_text(color = 'black'), strip.text = element_text(color = 'black'),
-                  panel.grid.minor = eb, legend.margin = margin(t = 0, r = 0, b = 0, l = 0, unit = 'cm')))
+            theme(axis.text = element_text(color = 'black'),
+                  strip.text = element_text(color = 'black'),
+                  panel.grid.minor = element_blank(),
+                  legend.margin = margin(t = 0, r = 0, b = 0, l = 0, unit = 'cm')))
 
 ############################################################
 # functions for loading data
 
-loadGeno = function(procDir, filePrefix, p, snpSubsetPath = NULL) {
-  genoData = readRDS(file.path(procDir, sprintf('%s_genotype_data.rds', filePrefix)))
+loadGeno = function(procDir, p, snpSubsetPath = NULL) {
+  genoData = readRDS(file.path(procDir, 'genotype_data.rds'))
 
   idx = (genoData$genoSummary$MAF >= p$minMaf) &
     (genoData$genoSummary$Call.rate >= p$minCallRate) &
@@ -41,8 +42,8 @@ loadGeno = function(procDir, filePrefix, p, snpSubsetPath = NULL) {
   return(genoFull)}
 
 
-loadGrid = function(procDir, filePrefix, minRecLen, splineDf, nPC, fam) {
-  gridData = read_csv(file.path(procDir, sprintf('%s_grid_data.csv.gz', filePrefix)), col_types = 'ccDDD')
+loadGrid = function(procDir, minRecLen, splineDf, nPC, fam) {
+  gridData = read_csv(file.path(procDir, 'grid_data.csv.gz'), col_types = 'ccDDD')
   setDT(gridData)
   gridData[, first_age := time_length(first_entry_date - dob, 'years')]
   gridData[, last_age := time_length(last_entry_date - dob, 'years')]
@@ -54,7 +55,7 @@ loadGrid = function(procDir, filePrefix, minRecLen, splineDf, nPC, fam) {
   covarColnames = c('rec_len', paste0('last_age', 1:splineDf))
 
   if (nPC > 0) {
-    pcData = read_csv(file.path(procDir, sprintf('%s_pc_data.csv.gz', filePrefix)), col_types = cols())
+    pcData = read_csv(file.path(procDir, 'pc_data.csv.gz'), col_types = cols())
     setDT(pcData)
     gridData = merge(gridData, pcData[, 1:(1 + nPC)], by = 'grid')
     covarColnames = c(covarColnames, colnames(pcData)[2:(1 + nPC)])}
@@ -65,9 +66,8 @@ loadGrid = function(procDir, filePrefix, minRecLen, splineDf, nPC, fam) {
   return(list(gridData, covarColnames))}
 
 
-loadPheno = function(procDir, filePrefix, p, gridData, phecodeSubsetPath) {
-  phenoData = read_csv(file.path(procDir, sprintf('%s_phenotype_data.csv.gz', filePrefix)),
-                       col_types = 'ccD')
+loadPheno = function(procDir, p, gridData, phecodeSubsetPath) {
+  phenoData = read_csv(file.path(procDir, 'phenotype_data.csv.gz'), col_types = 'ccD')
   setDT(phenoData)
 
   if (!is.null(phecodeSubsetPath) & length(phecodeSubsetPath) > 0) {
@@ -88,16 +88,34 @@ loadPheno = function(procDir, filePrefix, p, gridData, phecodeSubsetPath) {
   phenoData = phenoData[, .(grid, phecode, age)]
   return(list(phenoData, phenoSummary))}
 
+############################################################
+# functions for log files
+
+createLogFile = function(resultDir, fileSuffix) {
+  path = file.path(resultDir, sprintf('progress_%s.txt', fileSuffix))
+  timeStarted = Sys.time()
+  cat(sprintf('%s started analysis\n', timeStarted), file = path)
+  return(list(path = path, timeStarted = timeStarted))}
+
+
+appendLogFile = function(logFile, gwasMetadata, ii) {
+  cat(sprintf('%s completed phecode %s (%d of %d)\n', Sys.time(), gwasMetadata$phecode[ii],
+              ii, nrow(gwasMetadata)), file = logFile$path, append = TRUE)}
+
+
+finishLogFile = function(logFile) {
+  timeElapsed = Sys.time() - logFile$timeStarted
+  cat(sprintf('Time elapsed of %.2f %s\n', timeElapsed, attr(timeElapsed, 'units')),
+      file = logFile$path, append = TRUE)}
 
 ############################################################
 # functions for cox regression
 
-makeGwasMetadata = function(filePrefix, phecodeData, phenoData, phenoSummary) {
+makeGwasMetadata = function(phecodeData, phenoData, phenoSummary) {
   d = phecodeData[phecode %in% unique(phenoData$phecode), .(phecode, whichSex)]
   d[, phecodeStr := paste0('phe', gsub('.', 'p', phecode, fixed = TRUE))]
-  d[, coxFilename := sprintf('%s_%s_cox.tsv.gz', filePrefix, phecodeStr)]
-  d[, logisticFilename := sprintf('%s_%s_logistic.tsv', filePrefix, phecodeStr)]
-  # d[, covarNum := paste0('1-', ncol(covarData) - ifelse(whichSex == 'both', 2, 3))]
+  d[, coxFilename := paste0(phecodeStr, '_cox.tsv.gz')]
+  d[, logisticFilename := paste0(phecodeStr, '_logistic.tsv')]
   return(merge(d, phenoSummary, by = 'phecode'))}
 
 
@@ -120,12 +138,12 @@ makeInput = function(phenoData, gridData, whichSex, minEvents, ageBuffer) {
   input[, status := ifelse(is.na(age), 0, 1)]
   input[, age2 := ifelse(status, age, last_age)]
   input[, age1 := min(first_age, max(0, age2 - ageBuffer)), by = grid]
-  input}
+  return(input)}
 
 
 addSnpToInput = function(input, genoFull, snp) {
   input[, genotype := as(genoFull$genotypes[grid, snp], 'numeric')[,1]]
-  input[!is.na(genotype),]}
+  return(input[!is.na(genotype),])}
 
 
 makeCoxStr = function(whichSex, nPC) {
@@ -134,11 +152,11 @@ makeCoxStr = function(whichSex, nPC) {
     formStr = paste(formStr, '+ sex')}
   if (nPC > 0) {
     formStr = paste(formStr, '+', paste0('PC', 1:nPC, collapse = ' + '))}
-  formStr}
+  return(formStr)}
 
 
 runCox = function(formulaStr, input) {
-  coxph(formula(formulaStr), data = input)}
+  return(coxph(formula(formulaStr), data = input))}
 
 
 
@@ -152,26 +170,6 @@ runGwasCox = function(inputBase, genoFull, formulaStr) {
   d[, pval := 2 * pnorm(-abs(z))] # coxph sets small pvals to zero
   d[, snp := snps]
   return(d)}
-
-############################################################
-# functions for log files
-
-createLogFile = function(resultDir, filePrefix, fileSuffix) {
-  path = file.path(resultDir, sprintf('%s_progress_%s.txt', filePrefix, fileSuffix))
-  timeStarted = Sys.time()
-  cat(sprintf('%s started analysis\n', timeStarted), file = path)
-  return(list(path = path, timeStarted = timeStarted))}
-
-
-appendLogFile = function(logFile, gwasMetadata, ii) {
-  cat(sprintf('%s completed phecode %s (%d of %d)\n', Sys.time(), gwasMetadata$phecode[ii],
-              ii, nrow(gwasMetadata)), file = logFile$path, append = TRUE)}
-
-
-finishLogFile = function(logFile) {
-  timeElapsed = Sys.time() - logFile$timeStarted
-  cat(sprintf('Time elapsed of %.2f %s\n', timeElapsed, attr(timeElapsed, 'units')),
-      file = logFile$path, append = TRUE)}
 
 ############################################################
 # functions for logistic regression using plink
@@ -205,28 +203,27 @@ prepForPlink = function(snps, gridData, covarColnames, gwasMetadata, phenoPlinkL
 
 
 makePlinkArgs = function(p, paths) {
-  sprintf('%s --bfile %s --extract %s --covar %s --pheno %s --1 --memory %d --vif %d',
-          '--logistic hide-covar beta --ci 0.95',
-          file.path(p$dataPath, p$dataPrefix),paths$snp, paths$covar,
+  sprintf('%s --bfile %s --extract %s --covar %s --pheno %s --memory %d --vif %d',
+          '--1 --logistic hide-covar beta --ci 0.95',
+          p$dataPathPrefix, paths$snp, paths$covar,
           paths$pheno, as.numeric(p$memSize), as.numeric(p$maxVif))}
 
 
-runGwasPlink = function(resultDir, filePrefix, phecodeStr, covarNum, plinkArgs, execPath) {
-  argsNow = sprintf('%s --pheno-name %s --covar-number %s --out %s_%s',
+runGwasPlink = function(resultDir, phecodeStr, covarNum, plinkArgs, execPath) {
+  argsNow = sprintf('%s --pheno-name %s --covar-number %s --out %s',
                     plinkArgs, phecodeStr, covarNum,
-                    file.path(resultDir, filePrefix), phecodeStr)
+                    file.path(resultDir, phecodeStr))
   system2(execPath, argsNow)}
 
 
-cleanPlinkOutput = function(resultDir, filePrefix, phecodeStr) {
-  outputFilename = sprintf('%s_%s.assoc.logistic', filePrefix, phecodeStr)
-  outputFilepath = file.path(resultDir, outputFilename)
-  tmpFilepath = tempfile(paste0(phecodeStr, '_'))
-  system(sprintf("cat %s | tr -s ' ' '\t' > %s", outputFilepath, tmpFilepath))
+cleanPlinkOutput = function(resultDir, phecodeStr) {
+  outputFile = file.path(resultDir, paste0(phecodeStr, '.assoc.logistic'))
+  tmpFile = tempfile(paste0(phecodeStr, '_'))
+  system(sprintf("cat %s | tr -s ' ' '\t' > %s", outputFile, tmpFile))
   system(sprintf("cat %s | sed 's/^[[:space:]]*//g' | sed 's/[[:space:]]*$//g' > %s",
-                 tmpFilepath, outputFilepath))
-  unlink(tmpFilepath)
-  return(outputFilepath)}
+                 tmpFile, outputFile))
+  unlink(tmpFile)
+  return(outputFile)}
 
 
 # makeGlmStr = function(whichSex, nPC, splineDf) {
@@ -235,8 +232,8 @@ cleanPlinkOutput = function(resultDir, filePrefix, phecodeStr) {
 #     formStr = paste(formStr, '+ sex')}
 #   if (nPC > 0) {
 #     formStr = paste(formStr, '+', paste0('PC', 1:nPC, collapse = ' + '))}
-#   formStr}
+#   return(formStr)}
 #
 #
 # runGlm = function(formulaStr, input) {
-#   speedglm(formula(formulaStr), family = binomial(), data = input)}
+#   return(speedglm(formula(formulaStr), family = binomial(), data = input))}
