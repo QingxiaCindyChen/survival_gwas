@@ -1,4 +1,4 @@
-source(file.path('analyze', 'analyze_setup.R'))
+source(file.path('analyze', 'setup.R'))
 
 analysisDir = 'exome_full'
 filePrefix = 'exome'

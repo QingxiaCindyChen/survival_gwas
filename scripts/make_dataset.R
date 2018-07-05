@@ -9,11 +9,12 @@ con = odbcConnect('NZSQL', believeNRows = FALSE)
 
 cmdArgs = commandArgs(trailingOnly = TRUE)
 if (length(cmdArgs) == 0) {
-  paramFile = 'exome_params.yaml'
+  paramDir = 'params'
+  paramFile = 'exome_test1_params.yaml'
 } else {
-  paramFile = cmdArgs[1]}
+  paramDir = basename(cmdArgs[1])
+  paramFile = basename(cmdArgs[1])}
 
-paramDir = 'params'
 params = read_yaml(file.path(paramDir, paramFile))
 procParent = 'processed'
 procDir = file.path(procParent, params$datasetName)

@@ -1,12 +1,13 @@
-source(file.path('analyze', 'analyze_setup.R'))
+source(file.path('scripts', 'setup.R'))
 
 cmdArgs = commandArgs(trailingOnly = TRUE)
 if (length(cmdArgs) == 0) {
+  paramDir = 'params'
   paramFile = 'exome_test1_params.yaml'
 } else {
-  paramFile = cmdArgs[1]}
+  paramDir = basename(cmdArgs[1])
+  paramFile = basename(cmdArgs[1])}
 
-paramDir = 'params'
 params = read_yaml(file.path(paramDir, paramFile))
 procDir = file.path(procParent, params$datasetName)
 resultDir = file.path(resultParent, params$datasetName,
