@@ -3,9 +3,9 @@ source(file.path('scripts', 'setup.R'))
 cmdArgs = commandArgs(trailingOnly = TRUE)
 if (length(cmdArgs) == 0) {
   paramDir = 'params'
-  paramFile = 'exome_test1_params.yaml'
+  paramFile = 'exome_params_test1.yaml'
 } else {
-  paramDir = basename(cmdArgs[1])
+  paramDir = dirname(cmdArgs[1])
   paramFile = basename(cmdArgs[1])}
 
 params = read_yaml(file.path(paramDir, paramFile))
@@ -17,7 +17,11 @@ if (!file.exists(resultDir)) {
   dir.create(resultDir, recursive = TRUE)}
 write_yaml(params, file.path(resultDir, 'params.yaml'))
 
-registerDoParallel(cores = params$nCores)
+if (Sys.getenv('SLURM_CPUS_PER_TASK') != '') {
+  registerDoParallel(cores = Sys.getenv('SLURM_CPUS_PER_TASK'))
+} else {
+  registerDoParallel(cores = params$nCores)
+}
 
 ############################################################
 # load snp data
@@ -105,6 +109,8 @@ gwasMetadata[, logisticFilename := paste0(logisticFilename, '.gz')]
 finishLogFile(plinkLog)
 
 ############################################################
+
+write_tsv(gwasMetadata, file.path(resultDir, 'gwas_metadata.tsv'))
 
 d = c('genoKeep', 'phenoPlinkList', 'done', 'd')
 save(list = setdiff(ls(), d), file = file.path(resultDir, 'workspace.Rdata'))

@@ -1,8 +1,8 @@
 datasetName: 'exome'
 gridTable: 'LB_EXOME'
-nCores: 16 # will be superseded by the value in the slurm file
-snpSubsetFile: null
-phecodeSubsetFile: null
+nCores: 2 # will be superseded by the value in the slurm file
+snpSubsetFile: 'exome_snps_test1000.tsv'
+phecodeSubsetFile: 'exome_phecodes_test.tsv'
 
 geno:
   minMaf: 0.01
