@@ -13,13 +13,21 @@ load(file.path(resultDir, analysisDir, sprintf('%s_workspace.Rdata', filePrefix)
 genoData = readRDS(file.path(procDir, sprintf('%s_genotype_data.rds', filePrefix)))
 snpData = merge(snpData, data.table(snp = rownames(genoData$genoSummary), genoData$genoSummary), by = 'snp')
 
-# phecodeDataKeep = phecodeDataKeepOrig[phecode %in% c('274.1', '714.1', '335', '185', '427.21', '290.11')]
+testing = TRUE
+if (testing) {
+  phecodeDataKeepOrig = phecodeDataKeep
+  phecodeDataKeep = phecodeDataKeepOrig[phecode %in% c('274.1', '714.1', '335', '185', '427.21', '290.11')]
+}
 
 ############################################################
 
 registerDoParallel(cores = 2)
 
-maxPvalLoad = 1e-3
+if (testing) {
+  maxPvalLoad = 1
+} else {
+  maxPvalLoad = 1e-3
+}
 
 resultList = foreach(ii = 1:nrow(phecodeDataKeep)) %dopar% {
   coxFilepath = file.path(resultDir, analysisDir, phecodeDataKeep$coxFilename[ii])
@@ -31,13 +39,6 @@ resultList = foreach(ii = 1:nrow(phecodeDataKeep)) %dopar% {
   dLogistic = setDT(read_tsv(logisticFilepath, col_types = 'dcdccddddddd'))
   colnames(dLogistic) = tolower(colnames(dLogistic))
   dLogistic = dLogistic[, .(beta, se, z = stat, pval = p, snp = snp, method = 'logistic')]
-
-  # if (!is.na(phecodeDataKeep$logisticFilename2[ii])) {
-  #   glmFilepath = file.path(resultDir, analysisDir, phecodeDataKeep$logisticFilename2[ii])
-  #   dGlm = setDT(read_tsv(glmFilepath, col_types = 'ddddc'))
-  #   dGlm[, beta := -beta]
-  #   dGlm[, method:= 'logistic']
-  #   dLogistic = rbind(dLogistic[!(snp %in% dGlm$snp)], dGlm)}
 
   d = rbind(dCox, dLogistic)
   d[, phecode := phecodeDataKeep$phecode[ii]]
@@ -74,6 +75,55 @@ resultLambda = dcast(resultLambda, phecode ~ method, value.var = 'lambdaMed')
 #   qq(resultNow$pval, main = plotTitle)
 #   dev.off()
 # }
+
+############################################################
+# currently ignoring issues with
+# - phecodes never ascertained in previous studies
+# - linkage disequilibrium
+# - snps not measured in previous studies
+
+catalogAssocUnique = read_csv(file.path(procDir, 'catalog_associations_unique.csv.gz'), col_types = 'cc')
+setDT(catalogAssocUnique)
+catalogAssocUnique[, known := 1]
+
+a = merge(result, catalogAssocUnique, by = c('phecode', 'snp'), all.x = TRUE)
+a[is.na(known), known := 0]
+# a[is.na(pval), pval := 1] # hack to deal with a few p-values from logistic, not necessary for precrec
+a = a[startsWith(snp, 'rs')] # hack to remove snps not measured in previous studies
+a[, negLogPval := -log10(pval)]
+
+
+calcRocPrc = function(d) {
+  dCox = d[method == 'cox']
+  dLogistic = d[method == 'logistic']
+  scores = precrec::join_scores(dCox[, negLogPval], dLogistic[, negLogPval], chklen = FALSE)
+  labels = precrec::join_labels(dCox[, known], dLogistic[, known], chklen = FALSE)
+  msmdat = precrec::mmdata(scores, labels, modnames = c('cox', 'logistic'))
+  precrec::evalmod(msmdat)
+}
+
+
+a1 = calcRocPrc(a)
+p = ggplot2::autoplot(a1, curvetype = 'PRC', reduce_points = TRUE) +
+  scale_color_brewer(type = 'seq', palette = 'Set2')
+print(p)
+
+p = ggplot2::autoplot(a1, curvetype = 'ROC', reduce_points = TRUE) +
+  scale_color_brewer(type = 'seq', palette = 'Set2')
+print(p)
+
+
+# microbenchmark::microbenchmark({
+# prCox = PRROC::pr.curve(scores.class0 = a[method == 'cox', negLogPval],
+#                         weights.class0 = a[method == 'cox', known],
+#                         curve = TRUE)
+# plot(prCox)
+#
+# prLogistic = PRROC::pr.curve(scores.class0 = a[method == 'logistic', negLogPval],
+#                              weights.class0 = a[method == 'logistic', known],
+#                              curve = TRUE)
+# plot(prLogistic)
+# }, times = 1)
 
 ############################################################
 
