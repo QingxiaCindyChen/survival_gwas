@@ -1,14 +1,21 @@
 datasetName: 'exome'
 gridTable: 'LB_EXOME'
-nCores: 2 # will be superseded by the value in the slurm file
-snpSubsetFile: 'exome_snps_test119.tsv'
-phecodeSubsetFile: 'exome_phecodes_test.tsv'
+snpSubsetFile: 'snps_test1000.tsv'
+phecodeSubsetFile: 'phecodes_test.tsv'
+
+slurm:
+  email: 'jakejhughey@gmail.com'
+  cpusPerTask: 2
+  mem: '32G'
+  time: '01:00:00' # days-hh:mm:ss
+  nTasks: 1 # for job array
+  lmodCollection: 'R343'
 
 geno:
   minMaf: 0.01
   minCallRate: 0.95
   minHwePval: 0.001
-  aimsFile: 'exome_aims.txt'
+  aimsFile: 'aims.txt'
 
 pheno:
   minRecLen: 0 # years
@@ -22,7 +29,7 @@ gwas:
   splineDf: 3 # for last_age in logistic regression (ns::splines)
 
 plink:
-  dataPathPrefix: '/scratch/hughejj1/genotype_data/exome/Exome_GRID_Euro'
+  dataPathPrefix: '/data/h_hughey_lab/hughejj1/genotype_data/exome/Exome_GRID_Euro'
   execPath: '/home/hughejj1/plink-1.90b6/plink'
   memSize: 100 # MB
   maxVif: 1e7 # reduce plink's tendency to output NA due to multicollinearity of spline bases

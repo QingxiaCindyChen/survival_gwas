@@ -3,10 +3,8 @@
 #SBATCH --mail-type=ALL
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=6
-#SBATCH --mem=32G
-#SBATCH --time=01:00:00
-
+#SBATCH --cpus-per-task=1
+#SBATCH --mem=8G
+#SBATCH --time=00:10:00
 module restore R343
-
-Rscript scripts/run_regression.R params/exome/params_test2.yaml
+Rscript scripts/split_regression.R params/exome/params_test1.yaml

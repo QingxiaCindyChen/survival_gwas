@@ -11,13 +11,107 @@ library('yaml')
 procParent = 'processed'
 resultParent = 'results'
 
-phecodeData = setDT(read_csv(file.path(procParent, 'phecode_data.csv.gz'), col_types = 'ccc??????'))
+phecodeData = read_csv(file.path(procParent, 'phecode_data.csv.gz'), col_types = 'ccc??????')
+setDT(phecodeData)
 
 theme_set(theme_light() +
             theme(axis.text = element_text(color = 'black'),
                   strip.text = element_text(color = 'black'),
                   panel.grid.minor = element_blank(),
                   legend.margin = margin(t = 0, r = 0, b = 0, l = 0, unit = 'cm')))
+
+############################################################
+# functions for splitting and gathering
+
+writeTaskDirs = function(gwasMetadata, params, paramDir, resultDir) {
+  gwasMetadata[, taskId := rep_len(1:params$nTasks, length.out = .N)]
+  gwasMetadataList = split(gwasMetadata, by = 'taskId')
+  params$phecodeSubsetFile = 'phecodes.tsv'
+
+  for(ii in 1:length(gwasMetadataList)) {
+    resultDirNow = sprintf('%s_%d', resultDir, ii)
+    dir.create(resultDirNow, recursive = TRUE)
+    write_tsv(gwasMetadataList[[ii]][, .(phecode)],
+              file.path(resultDirNow, 'phecodes.tsv'), col_names = FALSE)
+    if (!is.null(params$snpSubsetFile)) {
+      file.copy(file.path(paramDir, params$snpSubsetFile), resultDirNow)}
+    write_yaml(params, file.path(resultDirNow, 'params.yaml'))}}
+
+
+writeResultDir = function(params, paramDir, resultDir) {
+  dir.create(resultDir, recursive = TRUE)
+  if (!is.null(params$snpSubsetFile)) {
+    file.copy(file.path(paramDir, params$snpSubsetFile), resultDir)}
+  if (!is.null(params$phecodeSubsetFile)) {
+    file.copy(file.path(paramDir, params$phecodeSubsetFile), resultDir)}
+  write_yaml(params, file.path(resultDir, 'params.yaml'))}
+
+
+writeSlurmRun = function(p, resultDir) {
+  txt1 = c('#!/bin/bash',
+           '#SBATCH --mail-user=%s',
+           '#SBATCH --mail-type=ALL',
+           '#SBATCH --nodes=1',
+           '#SBATCH --ntasks=1',
+           '#SBATCH --cpus-per-task=%d',
+           '#SBATCH --mem=%s',
+           '#SBATCH --time=%s',
+           '#SBATCH --array=1-%d',
+           'module restore %s')
+  if (p$nTasks <= 1) {
+    txt2 = 'Rscript scripts/run_regression.R %s/params.yaml'
+  } else {
+    txt2 = 'Rscript scripts/run_regression.R %s_${SLURM_ARRAY_TASK_ID}/params.yaml'}
+
+  txt = sprintf(paste0(c(txt1, txt2), collapse = '\n'),
+                p$email, p$cpusPerTask, p$mem, p$time,
+                p$nTasks, p$lmodCollection, resultDir)
+  filename = sprintf('%s_run.slurm', basename(resultDir))
+  con = file(file.path('scripts', filename))
+  writeLines(txt, con)
+  close(con)}
+
+
+writeSlurmGather = function(p, resultDir) {
+  txt = c('#!/bin/bash',
+          '#SBATCH --mail-user=%s',
+          '#SBATCH --mail-type=ALL',
+          '#SBATCH --nodes=1',
+          '#SBATCH --ntasks=1',
+          '#SBATCH --cpus-per-task=1',
+          '#SBATCH --mem=4G',
+          '#SBATCH --time=00:20:00',
+          'module restore %s',
+          'Rscript scripts/gather_regression.R %s')
+  txt = sprintf(paste0(txt, collapse = '\n'),
+                p$email, p$lmodCollection, resultDir)
+  filename = sprintf('%s_gather.slurm', basename(resultDir))
+  con = file(file.path('scripts', filename))
+  writeLines(txt, con)
+  close(con)}
+
+
+gatherTaskResults = function(taskDirs, taskFiles, resultDir, subDir) {
+  gmList = foreach(taskDir = taskDirs) %do% {
+    gwasFile = file.path(taskDir, 'gwas_metadata.tsv')
+    if (file.exists(gwasFile)) {
+      gm = setDT(read_tsv(gwasFile, col_types = 'cccccdc'))
+      taskIdNow = strsplit(basename(taskDir), '_')[[1]][3]
+      gm[, taskId := as.integer(taskIdNow)]
+
+      file.copy(file.path(taskDir, gm$coxFilename), resultDir)
+      file.copy(file.path(taskDir, gm$logisticFilename), resultDir)
+      file.copy(file.path(taskDir, paste0(gm$phecodeStr, '.log')), resultDir)
+
+      for (taskFile in taskFiles) {
+        taskFileNew = sprintf('%s_%s.%s', tools::file_path_sans_ext(taskFile),
+                              taskIdNow, tools::file_ext(taskFile))
+        file.copy(file.path(taskDir, taskFile),
+                  file.path(resultDir, subDir, taskFileNew))}
+      gm
+    } else {
+      'incomplete'}}
+  return(gmList)}
 
 ############################################################
 # functions for loading data
@@ -141,33 +235,73 @@ makeInput = function(phenoData, gridData, whichSex, minEvents, ageBuffer) {
   return(input)}
 
 
-addSnpToInput = function(input, genoFull, snp) {
-  input[, genotype := as(genoFull$genotypes[grid, snp], 'numeric')[,1]]
-  return(input[!is.na(genotype),])}
+# addSnpToInput = function(input, genoFull, snp) {
+#   input[, genotype := as(genoFull$genotypes[grid, snp], 'numeric')[,1]]
+#   return(input[!is.na(genotype),])}
+#
+#
+# makeCoxStr = function(whichSex, nPC) {
+#   formStr = 'Surv(age1, age2, status) ~ genotype'
+#   if (whichSex == 'both') {
+#     formStr = paste(formStr, '+ sex')}
+#   if (nPC > 0) {
+#     formStr = paste(formStr, '+', paste0('PC', 1:nPC, collapse = ' + '))}
+#   return(formStr)}
+#
+#
+# runCox = function(formulaStr, input) {
+#   return(coxph(formula(formulaStr), data = input))}
+#
+#
+# runGwasCox = function(inputBase, genoFull, whichSex, nPC) {
+#   formulaStr = makeCoxStr(whichSex, nPC)
+#   snps = colnames(genoFull$genotypes)
+#   d = foreach(snp = snps, .combine = rbind) %do% {
+#     inputNow = addSnpToInput(inputBase, genoFull, snp)
+#     coxFit = runCox(formulaStr, inputNow)
+#     data.table(coef(summary(coxFit))[1, c(1, 3:4), drop = FALSE])}
+#   colnames(d) = c('beta', 'se', 'z')
+#   d[, pval := 2 * pnorm(-abs(z))] # coxph sets small pvals to zero
+#   d[, snp := snps]
+#   return(d)}
 
 
-makeCoxStr = function(whichSex, nPC) {
-  formStr = 'Surv(age1, age2, status) ~ genotype'
+getColnamesKeep = function(whichSex, nPC) {
+  colnamesKeep = c('grid', 'age1', 'age2', 'status')
   if (whichSex == 'both') {
-    formStr = paste(formStr, '+ sex')}
+    colnamesKeep = c(colnamesKeep, 'sex')}
   if (nPC > 0) {
-    formStr = paste(formStr, '+', paste0('PC', 1:nPC, collapse = ' + '))}
-  return(formStr)}
+    colnamesKeep = c(colnamesKeep, paste0('PC', 1:nPC))}
+  return(colnamesKeep)}
 
 
-runCox = function(formulaStr, input) {
-  return(coxph(formula(formulaStr), data = input))}
+makeAgregInput = function(input, genoFull, snp) {
+  input[, genotype := as(genoFull$genotypes[grid, snp], 'numeric')[,1]]
+  setcolorder(input, c('grid', 'age1', 'age2', 'status', 'genotype'))
+  idx = !is.na(input$genotype)
+  x = as.matrix(input[idx, 5:ncol(input)])
+  y = with(input[idx], Surv(age1, age2, status))
+  return(list(x = x, y = y))}
 
 
+runAgreg = function(x, y, control) {
+  fit = agreg.fit(x, y, strata = NULL, init = NULL, control = control,
+                  method = 'efron', resid = FALSE, concordance = FALSE)
+  return(fit)}
 
-runGwasCox = function(inputBase, genoFull, formulaStr) {
+
+runGwasCox = function(inputBase, genoFull, whichSex, nPC) {
+  colnamesKeep = getColnamesKeep(whichSex, nPC)
+  inputKeep = inputBase[, colnamesKeep, with = FALSE]
   snps = colnames(genoFull$genotypes)
-  d = foreach(snp = snps, .combine = rbind) %do% {
-    inputNow = addSnpToInput(inputBase, genoFull, snp)
-    coxFit = runCox(formulaStr, inputNow)
-    data.table(coef(summary(coxFit))[1, c(1, 3:4), drop = FALSE])}
-  colnames(d) = c('beta', 'se', 'z')
-  d[, pval := 2 * pnorm(-abs(z))] # coxph sets small pvals to zero
+  control = coxph.control()
+  dVec = foreach(snp = snps, .combine = c) %do% {
+    agInput = makeAgregInput(inputKeep, genoFull, snp)
+    agFit = runAgreg(agInput$x, agInput$y, control)
+    c(agFit$coefficients[1], sqrt(diag(agFit$var)[1]))}
+  idx = seq(1, length(dVec), 2)
+  d = data.table(beta = dVec[idx], se = dVec[idx + 1])
+  d[, pval := 2 * pnorm(-abs(beta / se))]
   d[, snp := snps]
   return(d)}
 
@@ -177,7 +311,7 @@ runGwasCox = function(inputBase, genoFull, formulaStr) {
 makePhenoPlink = function(inputBase, phecodeStr) {
   phenoPlinkNow = inputBase[, .(grid, status)]
   colnames(phenoPlinkNow)[2] = phecodeStr
-  setkey(phenoPlinkNow, 'grid')
+  setkeyv(phenoPlinkNow, 'grid')
   return(phenoPlinkNow)}
 
 

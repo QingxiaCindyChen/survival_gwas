@@ -1,27 +1,30 @@
-source(file.path('scripts', 'setup.R'))
+source(file.path('scripts', 'setup_regression.R'))
 
 cmdArgs = commandArgs(trailingOnly = TRUE)
 if (length(cmdArgs) == 0) {
-  paramDir = 'params'
-  paramFile = 'exome_params_test1.yaml'
+  paramDir = 'params/exome'
+  paramFile = 'params_test1.yaml'
 } else {
   paramDir = dirname(cmdArgs[1])
   paramFile = basename(cmdArgs[1])}
 
 params = read_yaml(file.path(paramDir, paramFile))
 procDir = file.path(procParent, params$datasetName)
-resultDir = file.path(resultParent, params$datasetName,
-                      format(Sys.time(), '%Y%m%d_%H%M%S'))
 
-if (!file.exists(resultDir)) {
-  dir.create(resultDir, recursive = TRUE)}
-write_yaml(params, file.path(resultDir, 'params.yaml'))
+############################################################
+
+if (Sys.getenv('SLURM_ARRAY_TASK_ID') != '') {
+  resultDir = paramDir
+} else {
+  resultDir = file.path(resultParent, params$datasetName,
+                        format(Sys.time(), '%Y%m%d_%H%M%S'))
+  dir.create(resultDir, recursive = TRUE)
+  write_yaml(params, file.path(resultDir, 'params.yaml'))}
 
 if (Sys.getenv('SLURM_CPUS_PER_TASK') != '') {
   registerDoParallel(cores = Sys.getenv('SLURM_CPUS_PER_TASK'))
 } else {
-  registerDoParallel(cores = params$nCores)
-}
+  registerDoParallel(cores = params$slurm$cpusPerTask)}
 
 ############################################################
 # load snp data
@@ -50,11 +53,6 @@ rm(phenoTmp)
 
 gwasMetadata = makeGwasMetadata(phecodeData, phenoData, phenoSummary)
 
-# split analysis across servers
-# gwasMetadata = gwasMetadata[1:round(nrow(gwasMetadata) / 2)]
-# gwasMetadata = gwasMetadata[(1 + round(nrow(gwasMetadata) / 2)):nrow(gwasMetadata)]
-# change names of progress files and workspace file
-
 ############################################################
 # run cox regression
 
@@ -63,14 +61,12 @@ coxLog = createLogFile(resultDir, 'cox')
 phenoPlinkList = foreach(ii = 1:nrow(gwasMetadata)) %dopar% {
   whichSex = gwasMetadata$whichSex[ii]
   phenoDataNow = phenoData[phecode == gwasMetadata$phecode[ii], .(grid, age)]
+  inputBase = makeInput(phenoDataNow, gridData, whichSex,
+                        params$pheno$minEvents, params$pheno$ageBuffer)
 
-  inputBase = makeInput(phenoDataNow, gridData, whichSex, params$pheno$minEvents,
-                        params$pheno$ageBuffer)
-  coxStr = makeCoxStr(whichSex, params$gwas$nPC)
+  gwasResult = runGwasCox(inputBase, genoKeep, whichSex, params$gwas$nPC)
 
-  gwasResult = runGwasCox(inputBase, genoKeep, coxStr)
   write_tsv(gwasResult, gzfile(file.path(resultDir, gwasMetadata$coxFilename[ii])))
-
   appendLogFile(coxLog, gwasMetadata, ii)
   makePhenoPlink(inputBase, gwasMetadata$phecodeStr[ii])}
 
@@ -110,7 +106,6 @@ finishLogFile(plinkLog)
 
 ############################################################
 
-write_tsv(gwasMetadata, file.path(resultDir, 'gwas_metadata.tsv'))
-
 d = c('genoKeep', 'phenoPlinkList', 'done', 'd')
 save(list = setdiff(ls(), d), file = file.path(resultDir, 'workspace.Rdata'))
+write_tsv(gwasMetadata, file.path(resultDir, 'gwas_metadata.tsv'))
