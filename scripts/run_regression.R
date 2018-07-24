@@ -30,13 +30,13 @@ if (Sys.getenv('SLURM_CPUS_PER_TASK') != '') {
 ############################################################
 # load snp data
 
-genoKeep = loadGeno(procDir, params$geno, file.path(paramDir, params$snpSubsetFile))
+genoData = loadGeno(procDir, params$geno, file.path(paramDir, params$snpSubsetFile))
 
 ############################################################
 # load grid data
 
 gridTmp = loadGrid(procDir, params$pheno$minRecLen, params$gwas$nPC,
-                   params$gwas$splineDf, genoKeep$fam)
+                   params$gwas$splineDf, genoData$genoFull$fam)
 gridData = gridTmp[[1]]
 covarColnames = gridTmp[[2]]
 rm(gridTmp)
@@ -65,7 +65,7 @@ phenoPlinkList = foreach(ii = 1:nrow(gwasMetadata)) %dopar% {
   inputBase = makeInput(phenoDataNow, gridData, whichSex,
                         params$pheno$minEvents, params$pheno$ageBuffer)
 
-  gwasResult = runGwasCox(inputBase, genoKeep, whichSex, params$gwas$nPC)
+  gwasResult = runGwasCox(inputBase, genoData$genoFull, whichSex, params$gwas$nPC)
 
   write_tsv(gwasResult, gzfile(file.path(resultDir, gwasMetadata$coxFilename[ii])))
   appendLogFile(coxLog, gwasMetadata, ii)
@@ -76,8 +76,8 @@ finishLogFile(coxLog)
 ############################################################
 # prepare data for plink
 
-plinkTmp = prepForPlink(colnames(genoKeep$genotypes), gridData, covarColnames,
-                        gwasMetadata, phenoPlinkList)
+plinkTmp = prepForPlink(colnames(genoData$genoFull$genotypes), gridData,
+                        covarColnames, gwasMetadata, phenoPlinkList)
 gwasMetadata = plinkTmp[[1]]
 plinkPaths = plinkTmp[[2]]
 rm(plinkTmp)
@@ -107,6 +107,6 @@ finishLogFile(plinkLog)
 
 ############################################################
 
-d = c('genoKeep', 'phenoPlinkList', 'done', 'd')
+d = c('genoData', 'phenoPlinkList', 'done', 'd')
 save(list = setdiff(ls(), d), file = file.path(resultDir, 'workspace.Rdata'))
 write_tsv(gwasMetadata, file.path(resultDir, 'gwas_metadata.tsv'))

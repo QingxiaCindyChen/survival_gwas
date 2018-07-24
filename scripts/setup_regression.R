@@ -117,6 +117,12 @@ gatherTaskResults = function(taskDirs, taskFiles, resultDir, subDir) {
 ############################################################
 # functions for loading data
 
+filterGenoData = function(genoData, idx) {
+  genoData$genoFull$genotypes = genoData$genoFull$genotypes[, idx]
+  genoData$genoFull$map = genoData$genoFull$map[idx,]
+  genoData$genoSummary = genoData$genoSummary[idx,]
+  return(genoData)}
+
 loadGeno = function(procDir, p, snpSubsetPath = NULL) {
   genoData = readRDS(file.path(procDir, 'genotype_data.rds'))
 
@@ -124,17 +130,13 @@ loadGeno = function(procDir, p, snpSubsetPath = NULL) {
     (genoData$genoSummary$Call.rate >= p$minCallRate) &
     (2 * pnorm(-abs(genoData$genoSummary$z.HWE)) >= p$minHwePval) &
     (genoData$genoFull$map$chromosome <= 22)
-
-  genoFull = genoData$genoFull
-  genoFull$genotypes = genoFull$genotypes[, idx]
-  genoFull$map = genoFull$map[idx,]
+  genoData = filterGenoData(genoData, idx)
 
   if (!is.null(snpSubsetPath) & length(snpSubsetPath) > 0) {
     snps = unique(read_tsv(snpSubsetPath, col_types = 'c', col_names = FALSE)$X1)
-    genoFull$genotypes = genoFull$genotypes[, colnames(genoFull$genotypes) %in% snps]
-    genoFull$map = genoFull$map[genoFull$map$snp.name %in% snps,]}
-
-  return(genoFull)}
+    idx2 = colnames(genoData$genoFull$genotypes) %in% snps
+    genoData = filterGenoData(genoData, idx2)}
+  return(genoData)}
 
 
 loadGrid = function(procDir, minRecLen, splineDf, nPC, fam) {
@@ -419,12 +421,16 @@ loadGwas = function(resultDir, gwasMetadata, maxPvalLoad) {
   return(list(gd, gdLambda))}
 
 
-mergeAll = function(gwasData, phecodeData, gwasMetadata, mapData) {
-  setDT(mapData)
+mergeAll = function(gwasData, phecodeData, gwasMetadata, genoData) {
+  mapData = setDT(genoData$genoFull$map)
   mapData = mapData[, .(snp = snp.name, chr = chromosome, pos = position)]
-  gData = merge(gwasData, phecodeData[, .(phecode, phenotype, group)], by = 'phecode')
-  gData = merge(gData, gwasMetadata[, .(phecode, phecodeStr)], by = 'phecode')
+  genoSummary = setDT(genoData$genoSummary, keep.rownames = TRUE)
+  genoSummary = genoSummary[, .(snp = rn, maf = MAF)]
+  gData = merge(gwasData, phecodeData[, .(phecode, phenotype, group)],
+                by = 'phecode')
+  gData = merge(gData, gwasMetadata[, .(phecode, nCases)], by = 'phecode')
   gData = merge(gData, mapData, by = 'snp')
+  gData = merge(gData, genoSummary, by = 'snp')
   return(gData)}
 
 
@@ -447,6 +453,14 @@ plotManhattanAndQq = function(byList, dtSubset, plotDir) {
                  byList$phecode, byList$method)
   plotManhattan(byList, dtSubset, plotDir, main)
   plotQq(byList, dtSubset, plotDir, main)}
+
+
+filterForSignificance = function(gData, maxPval) {
+  d = gData[, if (mean(-log(pval), na.rm = TRUE) >= -log(maxPval)) .SD,
+            by = .(phecode, snp)]
+  d[, logRatio := log2(exp(beta))]
+  d[, negLogPval := -log10(pval)]
+  return(d)}
 
 
 plotEffectSize = function(gData, lnCol, lnSz, ptShp, ptSz, ptAlph) {
