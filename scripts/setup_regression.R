@@ -11,7 +11,8 @@ library('yaml')
 procParent = 'processed'
 resultParent = 'results'
 
-phecodeData = read_csv(file.path(procParent, 'phecode_data.csv.gz'), col_types = 'ccc??????')
+phecodeData = read_csv(file.path(procParent, 'phecode_data.csv.gz'),
+                       col_types = 'ccc??????')
 setDT(phecodeData)
 
 theme_set(theme_light() +
@@ -24,7 +25,7 @@ theme_set(theme_light() +
 # functions for splitting and gathering
 
 writeTaskDirs = function(gwasMetadata, params, paramDir, resultDir) {
-  gwasMetadata[, taskId := rep_len(1:params$nTasks, length.out = .N)]
+  gwasMetadata[, taskId := rep_len(1:params$slurm$nTasks, length.out = .N)]
   gwasMetadataList = split(gwasMetadata, by = 'taskId')
   params$phecodeSubsetFile = 'phecodes.tsv'
 
@@ -78,9 +79,9 @@ writeSlurmGather = function(p, resultDir) {
           '#SBATCH --mail-type=ALL',
           '#SBATCH --nodes=1',
           '#SBATCH --ntasks=1',
-          '#SBATCH --cpus-per-task=1',
-          '#SBATCH --mem=4G',
-          '#SBATCH --time=00:20:00',
+          '#SBATCH --cpus-per-task=4',
+          '#SBATCH --mem=16G',
+          '#SBATCH --time=01:00:00',
           'module restore %s',
           'Rscript scripts/gather_regression.R %s')
   txt = sprintf(paste0(txt, collapse = '\n'),
@@ -287,6 +288,7 @@ makeAgregInput = function(input, genoFull, snp) {
 runAgreg = function(x, y, control) {
   fit = agreg.fit(x, y, strata = NULL, init = NULL, control = control,
                   method = 'efron', resid = FALSE, concordance = FALSE)
+  # fit = agreg.fit.custom(x, y, control)
   return(fit)}
 
 
@@ -371,3 +373,126 @@ cleanPlinkOutput = function(resultDir, phecodeStr) {
 #
 # runGlm = function(formulaStr, input) {
 #   return(speedglm(formula(formulaStr), family = binomial(), data = input))}
+
+############################################################
+
+loadGwasCox = function(path) {
+  # col_type 'n' chokes on exponential notation
+  d = setDT(read_tsv(path, col_types = 'dddc'))
+  d[, beta := -beta] # coefficients from cox are for the major allele
+  return(d)}
+
+
+loadGwasLogistic = function(path) {
+  d = setDT(read_tsv(path, col_types = 'dcdccddddddd'))
+  colnames(d) = tolower(colnames(d))
+  d = d[, .(beta, se, pval = p, snp = snp)]
+  return(d)}
+
+
+loadGwasPerPhecode = function(resultDir, coxFilename, logisticFilename) {
+  coxFilepath = file.path(resultDir, coxFilename)
+  dCox = loadGwasCox(coxFilepath)
+  dCox[, method := 'cox']
+
+  logisticFilepath = file.path(resultDir, logisticFilename)
+  dLogistic = loadGwasLogistic(logisticFilepath)
+  dLogistic[, method := 'logistic']
+  return(rbind(dCox, dLogistic))}
+
+
+loadGwas = function(resultDir, gwasMetadata, maxPvalLoad) {
+  gdList = foreach(ii = 1:nrow(gwasMetadata), .combine = rbind) %dopar% {
+    d = loadGwasPerPhecode(resultDir, gwasMetadata$coxFilename[ii],
+                           gwasMetadata$logisticFilename[ii])
+    d[, phecode := gwasMetadata$phecode[ii]]
+
+    dLambda = d[, .(lambdaMed = median((beta / se)^2, na.rm = TRUE) /
+                      qchisq(0.5, 1)), by = .(phecode, method)]
+
+    d = d[, if (mean(log(pval), na.rm = TRUE) <= log(maxPvalLoad)) .SD, by = snp]
+    list(d, dLambda)}
+
+  gd = rbindlist(gdList[,1], use.names = TRUE)
+  gdLambda = rbindlist(gdList[,2], use.names = TRUE)
+  gdLambda = dcast(gdLambda, phecode ~ method, value.var = 'lambdaMed')
+  return(list(gd, gdLambda))}
+
+
+mergeAll = function(gwasData, phecodeData, gwasMetadata, mapData) {
+  setDT(mapData)
+  mapData = mapData[, .(snp = snp.name, chr = chromosome, pos = position)]
+  gData = merge(gwasData, phecodeData[, .(phecode, phenotype, group)], by = 'phecode')
+  gData = merge(gData, gwasMetadata[, .(phecode, phecodeStr)], by = 'phecode')
+  gData = merge(gData, mapData, by = 'snp')
+  return(gData)}
+
+
+plotManhattan = function(byList, dtSubset, plotDir, main = NULL) {
+  filename = sprintf('%s_%s_man.pdf', byList$phecodeStr, byList$method)
+  pdf(file.path(plotDir, filename), width = 6, height = 4)
+  manhattan(dtSubset, p = 'pval', snp = 'snp', chr = 'chr', bp = 'pos', main = main)
+  dev.off()}
+
+
+plotQq = function(byList, dtSubset, plotDir, main = NULL) {
+  filename = sprintf('%s_%s_qq.pdf', byList$phecodeStr, byList$method)
+  pdf(file.path(plotDir, filename), width = 6, height = 4)
+  qq(dtSubset$pval, main = main)
+  dev.off()}
+
+
+plotManhattanAndQq = function(byList, dtSubset, plotDir) {
+  main = sprintf('%s (%s), %s regression', byList$phenotype,
+                 byList$phecode, byList$method)
+  plotManhattan(byList, dtSubset, plotDir, main)
+  plotQq(byList, dtSubset, plotDir, main)}
+
+
+plotEffectSize = function(gData, lnCol, lnSz, ptShp, ptSz, ptAlph) {
+  d = dcast(gData, phecode + snp ~ method, value.var = 'logRatio')
+
+  pTmp = ggplot(d) +
+    geom_abline(slope = 1, intercept = 0, color = lnCol, size = lnSz) +
+    geom_point(aes(x = logistic, y = cox), shape = ptShp, size = ptSz, alpha = ptAlph) +
+    labs(title = 'Effect size', x = 'log2(hazard ratio)', y = 'log2(odds ratio)')
+
+  paramList = list(col = 'white', fill = 'darkgray', size = 0.25)
+  p = ggExtra::ggMarginal(pTmp, type = 'histogram', binwidth = 0.15, boundary = 0,
+                          xparams = paramList, yparams = paramList)
+  return(list(d, p))}
+
+
+plotPval = function(gData, lnCol, lnSz, ptShp, ptSz, ptAlph) {
+  d = dcast(gData, phecode + snp ~ method, value.var = 'negLogPval')
+  p = ggplot(d) +
+    geom_hline(yintercept = 0, color = lnCol, size = lnSz) +
+    geom_point(aes(x = (logistic + cox) / 2, y = cox - logistic),
+               shape = ptShp, size = ptSz, alpha = ptAlph) +
+    geom_smooth(aes(x = (logistic + cox) / 2, y = cox - logistic),
+                size = 0.5, method = 'loess', span = 0.5) +
+    labs(title = '-log10(p)')
+  return(list(d, p))}
+
+
+plotSe = function(gData, binwidth = 0.0005, limits = c(-0.015, 0.005)) {
+  d = dcast(gData, phecode + snp ~ method, value.var = 'se')
+  p = ggplot(d) +
+    geom_histogram(aes(x = cox - logistic), binwidth = binwidth, boundary = 0,
+                   size = 0.25, fill = 'darkgray', color = 'white') +
+    labs(title = 'Standard error') +
+    scale_x_continuous(limits = limits)
+  return(list(d, p))}
+
+
+plotLambda = function(gwasLambdaData, lnCol, lnSz, ptShp, ptSz, ptAlph,
+                      xlims = NULL, ylims = NULL) {
+  p = ggplot(gwasLambdaData) +
+    geom_hline(yintercept = 0, color = lnCol, size = lnSz) +
+    geom_point(aes(x = (logistic + cox) / 2, y = cox - logistic),
+               shape = ptShp, size = ptSz, alpha = ptAlph) +
+    labs(title = 'Lambda median') +
+    scale_x_continuous(limits = xlims) +
+    scale_y_continuous(limits = ylims)
+  return(p)}
+

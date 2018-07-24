@@ -5,9 +5,9 @@ phecodeSubsetFile: 'phecodes_test.tsv'
 
 slurm:
   email: 'jakejhughey@gmail.com'
-  cpusPerTask: 2
+  cpusPerTask: 6
   mem: '16G'
-  time: '00:10:00' # d-hh:mm:ss
+  time: '00:15:00' # d-hh:mm:ss
   nTasks: 1 # for job array
   lmodCollection: 'R343'
 

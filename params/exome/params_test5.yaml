@@ -5,8 +5,8 @@ phecodeSubsetFile: null
 
 slurm:
   email: 'jakejhughey@gmail.com'
-  cpusPerTask: 12
-  mem: '48G'
+  cpusPerTask: 20
+  mem: '32G'
   time: '01:00:00' # d-hh:mm:ss
   nTasks: 20 # for job array
   lmodCollection: 'R343'

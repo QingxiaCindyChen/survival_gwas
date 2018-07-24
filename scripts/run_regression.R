@@ -18,13 +18,14 @@ if (Sys.getenv('SLURM_ARRAY_TASK_ID') != '') {
 } else {
   resultDir = file.path(resultParent, params$datasetName,
                         format(Sys.time(), '%Y%m%d_%H%M%S'))
-  dir.create(resultDir, recursive = TRUE)
-  write_yaml(params, file.path(resultDir, 'params.yaml'))}
+  writeResultDir(params, paramDir, resultDir)}
 
 if (Sys.getenv('SLURM_CPUS_PER_TASK') != '') {
   registerDoParallel(cores = Sys.getenv('SLURM_CPUS_PER_TASK'))
 } else {
   registerDoParallel(cores = params$slurm$cpusPerTask)}
+
+# registerDoParallel(cores = 2)
 
 ############################################################
 # load snp data

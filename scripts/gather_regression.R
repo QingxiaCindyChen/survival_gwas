@@ -6,6 +6,11 @@ if (length(cmdArgs) == 0) {
 } else {
   resultDirRaw = cmdArgs[1]}
 
+if (Sys.getenv('SLURM_CPUS_PER_TASK') != '') {
+  registerDoParallel(cores = Sys.getenv('SLURM_CPUS_PER_TASK'))
+} else {
+  registerDoParallel(cores = params$slurm$cpusPerTask)}
+
 ############################################################
 
 resultDirBase = sub(pattern = '^([^_]*_[^_]*)_.*$', replacement = '\\1',
