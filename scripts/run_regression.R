@@ -2,11 +2,9 @@ source(file.path('scripts', 'setup_regression.R'))
 
 cmdArgs = commandArgs(trailingOnly = TRUE)
 if (length(cmdArgs) == 0) {
-  paramDir = 'params/exome'
-  paramFile = 'params_test1.yaml'
-} else {
-  paramDir = dirname(cmdArgs[1])
-  paramFile = basename(cmdArgs[1])}
+  cmdArgs = 'params/exome/params_test1.yaml'}
+paramDir = dirname(cmdArgs[1])
+paramFile = basename(cmdArgs[1])
 
 params = read_yaml(file.path(paramDir, paramFile))
 procDir = file.path(procParent, params$datasetName)
