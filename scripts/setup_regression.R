@@ -1,5 +1,4 @@
 library('data.table')
-# library('speedglm')
 library('readr')
 library('lubridate')
 library('doParallel')
@@ -123,6 +122,7 @@ filterGenoData = function(genoData, idx) {
   genoData$genoSummary = genoData$genoSummary[idx,]
   return(genoData)}
 
+
 loadGeno = function(procDir, p, snpSubsetPath = NULL) {
   genoData = readRDS(file.path(procDir, 'genotype_data.rds'))
 
@@ -139,7 +139,10 @@ loadGeno = function(procDir, p, snpSubsetPath = NULL) {
   return(genoData)}
 
 
-loadGrid = function(procDir, minRecLen, splineDf, nPC, fam) {
+loadGrid = function(procDir, fam, minRecLen, p, paramDir = NULL) {
+  splineDf = p$splineDf
+  nPC = p$nPC
+
   gridData = read_csv(file.path(procDir, 'grid_data.csv.gz'), col_types = 'ccDDD')
   setDT(gridData)
   gridData[, first_age := time_length(first_entry_date - dob, 'years')]
@@ -157,9 +160,17 @@ loadGrid = function(procDir, minRecLen, splineDf, nPC, fam) {
     gridData = merge(gridData, pcData[, 1:(1 + nPC)], by = 'grid')
     covarColnames = c(covarColnames, colnames(pcData)[2:(1 + nPC)])}
 
+  if (!is.null(p$covarFile)) {
+    covarData = read_delim(file.path(paramDir, p$covarFile),
+                           delim = p$covarFileDelim, col_types = cols())
+    setDT(covarData)
+    gridData = merge(gridData,
+                     covarData[, c('IID', p$covarsFromFile), with = FALSE],
+                     by.x = 'grid', by.y = 'IID') # not checking for name clashes
+    covarColnames = c(covarColnames, p$covarsFromFile)}
+
   genoTmp = data.table(fam)[, .(grid = pedigree, sex)]
   gridData = merge(gridData, genoTmp, by = 'grid')
-
   return(list(gridData, covarColnames))}
 
 
@@ -238,43 +249,13 @@ makeInput = function(phenoData, gridData, whichSex, minEvents, ageBuffer) {
   return(input)}
 
 
-# addSnpToInput = function(input, genoFull, snp) {
-#   input[, genotype := as(genoFull$genotypes[grid, snp], 'numeric')[,1]]
-#   return(input[!is.na(genotype),])}
-#
-#
-# makeCoxStr = function(whichSex, nPC) {
-#   formStr = 'Surv(age1, age2, status) ~ genotype'
-#   if (whichSex == 'both') {
-#     formStr = paste(formStr, '+ sex')}
-#   if (nPC > 0) {
-#     formStr = paste(formStr, '+', paste0('PC', 1:nPC, collapse = ' + '))}
-#   return(formStr)}
-#
-#
-# runCox = function(formulaStr, input) {
-#   return(coxph(formula(formulaStr), data = input))}
-#
-#
-# runGwasCox = function(inputBase, genoFull, whichSex, nPC) {
-#   formulaStr = makeCoxStr(whichSex, nPC)
-#   snps = colnames(genoFull$genotypes)
-#   d = foreach(snp = snps, .combine = rbind) %do% {
-#     inputNow = addSnpToInput(inputBase, genoFull, snp)
-#     coxFit = runCox(formulaStr, inputNow)
-#     data.table(coef(summary(coxFit))[1, c(1, 3:4), drop = FALSE])}
-#   colnames(d) = c('beta', 'se', 'z')
-#   d[, pval := 2 * pnorm(-abs(z))] # coxph sets small pvals to zero
-#   d[, snp := snps]
-#   return(d)}
-
-
-getColnamesKeep = function(whichSex, nPC) {
+getColnamesKeep = function(whichSex, nPC, covarsFromFile) {
   colnamesKeep = c('grid', 'age1', 'age2', 'status')
   if (whichSex == 'both') {
     colnamesKeep = c(colnamesKeep, 'sex')}
   if (nPC > 0) {
     colnamesKeep = c(colnamesKeep, paste0('PC', 1:nPC))}
+  colnamesKeep = c(colnamesKeep, covarsFromFile) # ok if covarsFromFile is null
   return(colnamesKeep)}
 
 
@@ -290,19 +271,20 @@ makeAgregInput = function(input, genoFull, snp) {
 runAgreg = function(x, y, control) {
   fit = agreg.fit(x, y, strata = NULL, init = NULL, control = control,
                   method = 'efron', resid = FALSE, concordance = FALSE)
-  # fit = agreg.fit.custom(x, y, control)
   return(fit)}
 
 
-runGwasCox = function(inputBase, genoFull, whichSex, nPC) {
-  colnamesKeep = getColnamesKeep(whichSex, nPC)
+runGwasCox = function(inputBase, genoFull, whichSex, nPC, covarsFromFile) {
+  colnamesKeep = getColnamesKeep(whichSex, nPC, covarsFromFile)
   inputKeep = inputBase[, colnamesKeep, with = FALSE]
   snps = colnames(genoFull$genotypes)
   control = coxph.control()
+
   dVec = foreach(snp = snps, .combine = c) %do% {
     agInput = makeAgregInput(inputKeep, genoFull, snp)
     agFit = runAgreg(agInput$x, agInput$y, control)
     c(agFit$coefficients[1], sqrt(diag(agFit$var)[1]))}
+
   idx = seq(1, length(dVec), 2)
   d = data.table(beta = dVec[idx], se = dVec[idx + 1])
   d[, pval := 2 * pnorm(-abs(beta / se))]
@@ -362,19 +344,6 @@ cleanPlinkOutput = function(resultDir, phecodeStr) {
                  tmpFile, outputFile))
   unlink(tmpFile)
   return(outputFile)}
-
-
-# makeGlmStr = function(whichSex, nPC, splineDf) {
-#   formStr = sprintf('status ~ genotype + rec_len + %s', paste0('last_age', 1:splineDf, collapse = ' + '))
-#   if (whichSex == 'both') {
-#     formStr = paste(formStr, '+ sex')}
-#   if (nPC > 0) {
-#     formStr = paste(formStr, '+', paste0('PC', 1:nPC, collapse = ' + '))}
-#   return(formStr)}
-#
-#
-# runGlm = function(formulaStr, input) {
-#   return(speedglm(formula(formulaStr), family = binomial(), data = input))}
 
 ############################################################
 
@@ -509,4 +478,3 @@ plotLambda = function(gwasLambdaData, lnCol, lnSz, ptShp, ptSz, ptAlph,
     scale_x_continuous(limits = xlims) +
     scale_y_continuous(limits = ylims)
   return(p)}
-

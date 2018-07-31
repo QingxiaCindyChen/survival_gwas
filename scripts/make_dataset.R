@@ -4,11 +4,9 @@ con = odbcConnect('NZSQL', believeNRows = FALSE)
 
 cmdArgs = commandArgs(trailingOnly = TRUE)
 if (length(cmdArgs) == 0) {
-  paramDir = 'params'
-  paramFile = 'exome_test1_params.yaml'
-} else {
-  paramDir = basename(cmdArgs[1])
-  paramFile = basename(cmdArgs[1])}
+  cmdArgs = 'params/mega/params_test1.yaml'}
+paramDir = dirname(cmdArgs[1])
+paramFile = basename(cmdArgs[1])
 
 params = read_yaml(file.path(paramDir, paramFile))
 procParent = 'processed'
@@ -24,13 +22,14 @@ phecodeIcdMapping = loadPhecodeIcdMapping(file.path(procParent, 'phecode_icd9_ma
 
 ############################################################
 
-phenoRaw = getPhenoRaw(con, params$gridTable, unique(phecodeIcdMapping$icd))
+phenoRaw = getPhenoRaw(con, unique(phecodeIcdMapping$icd),
+                       params$gridTable, params$gridTableEuro)
 phenoData = makePhenoData(phenoRaw, phecodeIcdMapping)
 write_csv(phenoData, gzfile(file.path(procDir, 'phenotype_data.csv.gz')))
 
 ############################################################
 
-gridData = makeGridData(con, params$gridTable)
+gridData = makeGridData(con, params$gridTable, params$gridTableEuro)
 write_csv(gridData, gzfile(file.path(procDir, 'grid_data.csv.gz')))
 
 ############################################################

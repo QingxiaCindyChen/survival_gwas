@@ -12,15 +12,16 @@ loadPhecodeIcdMapping = function(filepath) {
   return(d)}
 
 
-getPhenoRaw = function(con, gridTable, icds) {
+getPhenoRaw = function(con, icds, gridTable, euro = TRUE) {
   queryStr = sprintf("select distinct a.GRID, a.CODE as icd, a.ENTRY_DATE
                      from ICD_CODES a
                      inner join %s b
                      on a.GRID = b.GRID
                      where a.CODE in ('%s')
-                     and b.EURO = 1
+                     %s
                      order by a.GRID, a.ENTRY_DATE;",
-                     gridTable, paste(icds, collapse="','"))
+                     gridTable, paste(icds, collapse="','"),
+                     ifelse(is.null(euro) || euro, 'and b.EURO = 1', ''))
   queryStr = gsub(pattern = '\\s+', replacement = ' ', x = queryStr)
   d = setDT(sqlQuery(con, queryStr, stringsAsFactors = FALSE, as.is = TRUE))
   colnames(d) = tolower(colnames(d))
@@ -34,17 +35,19 @@ makePhenoData = function(phenoRaw, phecodeIcdMapping) {
   return(d)}
 
 
-makeGridData = function(con, gridTable) {
+makeGridData = function(con, gridTable, euro = TRUE) {
   queryStr = sprintf('select a.GRID, c.GENDER_EPIC as gender, c.DOB,
-                     min(a.ENTRY_DATE) as FIRST_ENTRY_DATE, max(a.ENTRY_DATE) as LAST_ENTRY_DATE
+                     min(a.ENTRY_DATE) as FIRST_ENTRY_DATE,
+                     max(a.ENTRY_DATE) as LAST_ENTRY_DATE
                      from ICD_CODES a
                      inner join %s b
                      on a.GRID = b.GRID
                      inner join SD_RECORD c
                      on a.GRID = c.GRID
-                     where b.EURO = 1
+                     %s
                      group by a.GRID, c.GENDER_EPIC, c.DOB;',
-                     gridTable)
+                     gridTable,
+                     ifelse(is.null(euro) || euro, 'where b.EURO = 1', ''))
   queryStr = gsub(pattern = '\\s+', replacement = ' ', x = queryStr)
   gridData = setDT(sqlQuery(con, queryStr, stringsAsFactors = FALSE, as.is = TRUE))
   colnames(gridData) = tolower(colnames(gridData))

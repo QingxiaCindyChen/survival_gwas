@@ -2,7 +2,7 @@ source(file.path('scripts', 'setup_regression.R'))
 
 cmdArgs = commandArgs(trailingOnly = TRUE)
 if (length(cmdArgs) == 0) {
-  cmdArgs = 'params/exome/params_test1.yaml'}
+  cmdArgs = 'params/mega/params_test1.yaml'}
 paramDir = dirname(cmdArgs[1])
 paramFile = basename(cmdArgs[1])
 
@@ -33,8 +33,8 @@ genoData = loadGeno(procDir, params$geno, file.path(paramDir, params$snpSubsetFi
 ############################################################
 # load grid data
 
-gridTmp = loadGrid(procDir, params$pheno$minRecLen, params$gwas$nPC,
-                   params$gwas$splineDf, genoData$genoFull$fam)
+gridTmp = loadGrid(procDir, genoData$genoFull$fam,
+                   params$pheno$minRecLen, params$gwas, paramDir)
 gridData = gridTmp[[1]]
 covarColnames = gridTmp[[2]]
 rm(gridTmp)
@@ -63,7 +63,8 @@ phenoPlinkList = foreach(ii = 1:nrow(gwasMetadata)) %dopar% {
   inputBase = makeInput(phenoDataNow, gridData, whichSex,
                         params$pheno$minEvents, params$pheno$ageBuffer)
 
-  gwasResult = runGwasCox(inputBase, genoData$genoFull, whichSex, params$gwas$nPC)
+  gwasResult = runGwasCox(inputBase, genoData$genoFull, whichSex,
+                          params$gwas$nPC, params$gwas$covarsFromFile)
 
   write_tsv(gwasResult, gzfile(file.path(resultDir, gwasMetadata$coxFilename[ii])))
   appendLogFile(coxLog, gwasMetadata, ii)

@@ -2,8 +2,8 @@ source(file.path('scripts', 'setup_regression.R'))
 
 cmdArgs = commandArgs(trailingOnly = TRUE)
 if (length(cmdArgs) == 0) {
-  paramDir = 'params/exome'
-  paramFile = 'params_test4.yaml'
+  paramDir = 'params/mega'
+  paramFile = 'params_test1.yaml'
 } else {
   paramDir = dirname(cmdArgs[1])
   paramFile = basename(cmdArgs[1])}
