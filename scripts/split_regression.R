@@ -2,11 +2,9 @@ source(file.path('scripts', 'setup_regression.R'))
 
 cmdArgs = commandArgs(trailingOnly = TRUE)
 if (length(cmdArgs) == 0) {
-  paramDir = 'params/mega'
-  paramFile = 'params_test1.yaml'
-} else {
-  paramDir = dirname(cmdArgs[1])
-  paramFile = basename(cmdArgs[1])}
+  cmdArgs = 'params/mega/params_test1.yaml'}
+paramDir = dirname(cmdArgs[1])
+paramFile = basename(cmdArgs[1])
 
 params = read_yaml(file.path(paramDir, paramFile))
 procDir = file.path(procParent, params$datasetName)
@@ -25,16 +23,10 @@ if (params$slurm$nTasks > 1) {
   writeSlurmGather(params$slurm, resultDir)
 
   ############################################################
-  # load snp data
-
-  genoKeep = loadGeno(procDir, params$geno,
-                      file.path(paramDir, params$snpSubsetFile))
-
-  ############################################################
   # load grid data
 
-  gridTmp = loadGrid(procDir, params$pheno$minRecLen, params$gwas$nPC,
-                     params$gwas$splineDf, genoKeep$fam)
+  gridTmp = loadGrid(procDir, params$plink$dataPathPrefix,
+                     params$pheno$minRecLen, params$gwas, paramDir)
   gridData = gridTmp[[1]]
   covarColnames = gridTmp[[2]]
   rm(gridTmp)
@@ -51,5 +43,4 @@ if (params$slurm$nTasks > 1) {
   ############################################################
 
   gwasMetadata = makeGwasMetadata(phecodeData, phenoData, phenoSummary)
-  writeTaskDirs(gwasMetadata, params, paramDir, resultDir)
-}
+  writeTaskDirs(gwasMetadata, params, paramDir, resultDir)}

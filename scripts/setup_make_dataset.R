@@ -56,12 +56,6 @@ makeGridData = function(con, gridTable, euro = TRUE) {
   return(gridData[order(grid)])}
 
 
-makeGenoData = function(dataPathPrefix) {
-  genoFull = read.plink(dataPathPrefix)
-  genoSummary = col.summary(genoFull$genotypes)
-  return(list(genoFull = genoFull, genoSummary = genoSummary))}
-
-
 makePcData = function(genoSummary, gdsFile, paramDir, p) {
   aims = read_csv(file.path(paramDir, p$aimsFile),
                   col_names = FALSE, col_types = 'c')$X1

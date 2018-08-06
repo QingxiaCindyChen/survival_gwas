@@ -40,11 +40,12 @@ writeTaskDirs = function(gwasMetadata, params, paramDir, resultDir) {
 
 writeResultDir = function(params, paramDir, resultDir) {
   dir.create(resultDir, recursive = TRUE)
-  if (!is.null(params$snpSubsetFile)) {
-    file.copy(file.path(paramDir, params$snpSubsetFile), resultDir)}
-  if (!is.null(params$phecodeSubsetFile)) {
-    file.copy(file.path(paramDir, params$phecodeSubsetFile), resultDir)}
-  write_yaml(params, file.path(resultDir, 'params.yaml'))}
+  filenames = c(params$snpSubsetFile, params$phecodeSubsetFile,
+                params$gwas$covarFile)
+  for (filename in filenames) {
+    if (!is.null(filename)) {
+      file.copy(file.path(paramDir, filename), resultDir)}}
+    write_yaml(params, file.path(resultDir, 'params.yaml'))}
 
 
 writeSlurmRun = function(p, resultDir) {
@@ -116,32 +117,50 @@ gatherTaskResults = function(taskDirs, taskFiles, resultDir, subDir) {
 ############################################################
 # functions for loading data
 
-filterGenoData = function(genoData, idx) {
-  genoData$genoFull$genotypes = genoData$genoFull$genotypes[, idx]
-  genoData$genoFull$map = genoData$genoFull$map[idx,]
-  genoData$genoSummary = genoData$genoSummary[idx,]
-  return(genoData)}
+selectSnps = function(p, plinkDataPathPrefix, snpSubsetPath = NULL) {
+  warnOld = getOption('warn')
+  options(warn = -1) # suppress harmless warning about NULL in read_tokens_
+  snpsAll = read_table2(paste0(plinkDataPathPrefix, '.bim'), na = c('0', '-9'),
+                        col_names = FALSE, col_types = cols_only(X2 = 'c'))$X2
+  options(warn = warnOld)
+
+  if (is.null(snpSubsetPath)) {
+    snpsIdx = 1:length(snpsAll)
+  } else {
+    snpsPref = unique(read_tsv(snpSubsetPath, col_names = FALSE, col_types = 'c')$X1)
+    snpsIdx = match(snpsPref, snpsAll)
+    snpsIdx = sort(snpsIdx[!is.na(snpsIdx)])}
+
+  if (is.null(p$maxSnpsPerChunk)) {
+    p$maxSnpsPerChunk = 1e4}
+  chunkIdx = sort(rep_len(1:ceiling(length(snpsIdx) / as.integer(p$maxSnpsPerChunk)),
+                          length(snpsIdx)))
+
+  if (is.null(p$qc) || p$qc) {
+    snpData = foreach(chunkIdxNow = unique(chunkIdx), .combine = rbind) %dopar% {
+      snpsIdxNow = snpsIdx[chunkIdxNow == chunkIdx]
+      genoFull = read.plink(plinkDataPathPrefix, select.snps = snpsIdxNow)
+
+      genoSummary = col.summary(genoFull$genotypes)
+      idx = (genoSummary$MAF >= p$minMaf) &
+        (genoSummary$Call.rate >= p$minCallRate) &
+        (2 * pnorm(-abs(genoSummary$z.HWE)) >= p$minHwePval) &
+        (genoFull$map$chromosome <= 22)
+
+      data.table(snpName = genoFull$map$snp.name[idx],
+                 snpIdx = snpsIdxNow[idx],
+                 chunkIdx = chunkIdxNow)}
+  } else {
+    snpData = data.table(snpName = snpsAll[snpsIdx],
+                         snpIdx = snpsIdx,
+                         chunkIdx = chunkIdx)}
+
+  return(snpData)}
 
 
-loadGeno = function(procDir, p, snpSubsetPath = NULL) {
-  genoData = readRDS(file.path(procDir, 'genotype_data.rds'))
-
-  idx = (genoData$genoSummary$MAF >= p$minMaf) &
-    (genoData$genoSummary$Call.rate >= p$minCallRate) &
-    (2 * pnorm(-abs(genoData$genoSummary$z.HWE)) >= p$minHwePval) &
-    (genoData$genoFull$map$chromosome <= 22)
-  genoData = filterGenoData(genoData, idx)
-
-  if (!is.null(snpSubsetPath) & length(snpSubsetPath) > 0) {
-    snps = unique(read_tsv(snpSubsetPath, col_types = 'c', col_names = FALSE)$X1)
-    idx2 = colnames(genoData$genoFull$genotypes) %in% snps
-    genoData = filterGenoData(genoData, idx2)}
-  return(genoData)}
-
-
-loadGrid = function(procDir, fam, minRecLen, p, paramDir = NULL) {
-  splineDf = p$splineDf
-  nPC = p$nPC
+loadGrid = function(procDir, plinkDataPathPrefix, minRecLen, paramsGwas, paramDir = NULL) {
+  splineDf = paramsGwas$splineDf
+  nPC = paramsGwas$nPC
 
   gridData = read_csv(file.path(procDir, 'grid_data.csv.gz'), col_types = 'ccDDD')
   setDT(gridData)
@@ -151,8 +170,9 @@ loadGrid = function(procDir, fam, minRecLen, p, paramDir = NULL) {
   gridData = gridData[first_age >= 0 & rec_len >= minRecLen]
 
   gridData = cbind(gridData, data.table(splines::ns(gridData$last_age, df = splineDf)))
-  colnames(gridData)[(ncol(gridData) - splineDf + 1):ncol(gridData)] = paste0('last_age', 1:splineDf)
-  covarColnames = c('rec_len', paste0('last_age', 1:splineDf))
+  colIdx = (ncol(gridData) - splineDf + 1):ncol(gridData)
+  colnames(gridData)[colIdx] = paste0('last_age', 1:splineDf)
+  covarColnames = c('rec_len', colnames(gridData)[colIdx])
 
   if (nPC > 0) {
     pcData = read_csv(file.path(procDir, 'pc_data.csv.gz'), col_types = cols())
@@ -160,17 +180,23 @@ loadGrid = function(procDir, fam, minRecLen, p, paramDir = NULL) {
     gridData = merge(gridData, pcData[, 1:(1 + nPC)], by = 'grid')
     covarColnames = c(covarColnames, colnames(pcData)[2:(1 + nPC)])}
 
-  if (!is.null(p$covarFile)) {
-    covarData = read_delim(file.path(paramDir, p$covarFile),
-                           delim = p$covarFileDelim, col_types = cols())
+  if (!is.null(paramsGwas$covarFile)) {
+    warnOld = getOption('warn')
+    options(warn = -1) # suppress harmless warning about missing colunm name
+    covarData = read_delim(file.path(paramDir, paramsGwas$covarFile),
+                           delim = paramsGwas$covarFileDelim, col_types = cols())
+    options(warn = warnOld)
     setDT(covarData)
     gridData = merge(gridData,
-                     covarData[, c('IID', p$covarsFromFile), with = FALSE],
+                     covarData[, c('IID', paramsGwas$covarsFromFile), with = FALSE],
                      by.x = 'grid', by.y = 'IID') # not checking for name clashes
-    covarColnames = c(covarColnames, p$covarsFromFile)}
+    covarColnames = c(covarColnames, paramsGwas$covarsFromFile)}
 
-  genoTmp = data.table(fam)[, .(grid = pedigree, sex)]
-  gridData = merge(gridData, genoTmp, by = 'grid')
+  # genoTmp = data.table(fam)[, .(grid = pedigree, sex)]
+  fam = read_table2(paste0(plinkDataPathPrefix, '.fam'),
+                    col_names = FALSE, col_types = cols())
+  setDT(fam)
+  gridData = merge(gridData, fam[, .(grid = X1, sex = X5)], by = 'grid')
   return(list(gridData, covarColnames))}
 
 
@@ -206,14 +232,25 @@ createLogFile = function(resultDir, fileSuffix) {
   return(list(path = path, timeStarted = timeStarted))}
 
 
-appendLogFile = function(logFile, gwasMetadata, ii) {
-  cat(sprintf('%s completed phecode %s (%d of %d)\n', Sys.time(), gwasMetadata$phecode[ii],
-              ii, nrow(gwasMetadata)), file = logFile$path, append = TRUE)}
+appendLogFile = function(logFile, gwasMetadata, phenoIdx,
+                         chunkIdx = NULL, nChunks = NULL) {
+  if (phenoIdx == 0) {
+    txt = sprintf('%s loaded genotypes for chunk %d of %d\n',
+                  Sys.time(), chunkIdx, nChunks)
+  } else if (is.null(chunkIdx)) {
+    txt = sprintf('%s completed phecode %d of %d (%s)\n', Sys.time(),
+                  phenoIdx, nrow(gwasMetadata), gwasMetadata$phecode[phenoIdx])
+  } else {
+    txt = sprintf('%s completed chunk %d of %d for phecode %d of %d (%s)\n',
+                  Sys.time(), chunkIdx, nChunks, phenoIdx,
+                  nrow(gwasMetadata), gwasMetadata$phecode[phenoIdx])}
+  cat(txt, file = logFile$path, append = TRUE)
+  invisible(0)}
 
 
 finishLogFile = function(logFile) {
   timeElapsed = Sys.time() - logFile$timeStarted
-  cat(sprintf('Time elapsed of %.2f %s\n', timeElapsed, attr(timeElapsed, 'units')),
+  cat(sprintf('Total time elapsed of %.2f %s\n', timeElapsed, attr(timeElapsed, 'units')),
       file = logFile$path, append = TRUE)}
 
 ############################################################
@@ -222,7 +259,7 @@ finishLogFile = function(logFile) {
 makeGwasMetadata = function(phecodeData, phenoData, phenoSummary) {
   d = phecodeData[phecode %in% unique(phenoData$phecode), .(phecode, whichSex)]
   d[, phecodeStr := paste0('phe', gsub('.', 'p', phecode, fixed = TRUE))]
-  d[, coxFilename := paste0(phecodeStr, '_cox.tsv.gz')]
+  d[, coxFilename := paste0(phecodeStr, '_cox.tsv')]
   d[, logisticFilename := paste0(phecodeStr, '_logistic.tsv')]
   return(merge(d, phenoSummary, by = 'phecode'))}
 
@@ -247,6 +284,14 @@ makeInput = function(phenoData, gridData, whichSex, minEvents, ageBuffer) {
   input[, age2 := ifelse(status, age, last_age)]
   input[, age1 := min(first_age, max(0, age2 - ageBuffer)), by = grid]
   return(input)}
+
+
+createCoxGwasFiles = function(resultDir, filenames) {
+  done = foreach(filename = filenames, .combine = c) %dopar% {
+    con = file(file.path(resultDir, filename))
+    writeLines('beta\tse\tpval\tsnp', con)
+    close(con)}
+  invisible(done)}
 
 
 getColnamesKeep = function(whichSex, nPC, covarsFromFile) {
@@ -291,6 +336,45 @@ runGwasCox = function(inputBase, genoFull, whichSex, nPC, covarsFromFile) {
   d[, snp := snps]
   return(d)}
 
+
+runGwasPhewasChunkCox = function(byList, snpDataSubset, gwasMetadata, phenoPaths,
+                                 params, resultDir, coxLog, nChunks) {
+  genoFull = read.plink(params$plink$dataPathPrefix,
+                        select.snps = snpDataSubset$snpName)
+  appendLogFile(coxLog, gwasMetadata, 0, byList$chunkIdx, nChunks)
+
+  foreach(phenoIdx = 1:nrow(gwasMetadata), .combine = c) %dopar% {
+    whichSex = gwasMetadata$whichSex[phenoIdx]
+    inputBase = readRDS(phenoPaths[phenoIdx])
+
+    gwasResult = runGwasCox(inputBase, genoFull, whichSex, params$gwas$nPC,
+                            params$gwas$covarsFromFile)
+
+    gwasResultPath = file.path(resultDir, gwasMetadata$coxFilename[phenoIdx])
+    write_tsv(gwasResult, gwasResultPath, append = TRUE)
+    appendLogFile(coxLog, gwasMetadata, phenoIdx, byList$chunkIdx, nChunks)}}
+
+
+# runGwasCox = function(inputBase, snpData, plinkDataPathPrefix,
+#                       whichSex, nPC, covarsFromFile) {
+#   colnamesKeep = getColnamesKeep(whichSex, nPC, covarsFromFile)
+#   inputKeep = inputBase[, colnamesKeep, with = FALSE]
+#   control = coxph.control()
+#
+#   dVec = foreach(chunkIdxNow = unique(snpData$chunkIdx), .combine = c) %do% {
+#     snpsIdx = snpData[chunkIdx == chunkIdxNow, snpIdx]
+#     genoFull = read.plink(plinkDataPathPrefix, select.snps = snpsIdx)
+#     foreach(snp = colnames(genoFull$genotypes), .combine = c) %do% {
+#       agInput = makeAgregInput(inputKeep, genoFull, snp)
+#       agFit = runAgreg(agInput$x, agInput$y, control)
+#       c(agFit$coefficients[1], sqrt(diag(agFit$var)[1]))}}
+#
+#   idx = seq(1, length(dVec), 2)
+#   d = data.table(beta = dVec[idx], se = dVec[idx + 1])
+#   d[, pval := 2 * pnorm(-abs(beta / se))]
+#   d[, snp := snpData$snpName] # works because chunkIdx is already sorted
+#   return(d)}
+
 ############################################################
 # functions for logistic regression using plink
 
@@ -301,9 +385,9 @@ makePhenoPlink = function(inputBase, phecodeStr) {
   return(phenoPlinkNow)}
 
 
-prepForPlink = function(snps, gridData, covarColnames, gwasMetadata, phenoPlinkList) {
+prepForPlink = function(snpData, gridData, covarColnames, gwasMetadata, phenoPlinkList) {
   snpPath = tempfile('snp_', fileext = '.tsv')
-  write_tsv(data.table(snps), snpPath, col_names = FALSE)
+  write_tsv(snpData[, .(snpName)], snpPath, col_names = FALSE)
 
   covarData = gridData[, .(FID = grid, IID = grid)]
   covarData = cbind(covarData, gridData[, c(covarColnames, 'sex'), with = FALSE])

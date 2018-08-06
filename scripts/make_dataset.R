@@ -34,11 +34,6 @@ write_csv(gridData, gzfile(file.path(procDir, 'grid_data.csv.gz')))
 
 ############################################################
 
-genoData = makeGenoData(params$plink$dataPathPrefix)
-saveRDS(genoData, file.path(procDir, 'genotype_data.rds'))
-
-############################################################
-
 if (!is.null(params$geno$aimsFile)) {
   snpgdsBED2GDS(paste0(params$plink$dataPathPrefix, '.bed'),
                 paste0(params$plink$dataPathPrefix, '.fam'),

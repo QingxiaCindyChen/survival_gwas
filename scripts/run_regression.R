@@ -28,12 +28,13 @@ if (Sys.getenv('SLURM_CPUS_PER_TASK') != '') {
 ############################################################
 # load snp data
 
-genoData = loadGeno(procDir, params$geno, file.path(paramDir, params$snpSubsetFile))
+snpData = selectSnps(params$geno, params$plink$dataPathPrefix,
+                     file.path(paramDir, params$snpSubsetFile))
 
 ############################################################
 # load grid data
 
-gridTmp = loadGrid(procDir, genoData$genoFull$fam,
+gridTmp = loadGrid(procDir, params$plink$dataPathPrefix,
                    params$pheno$minRecLen, params$gwas, paramDir)
 gridData = gridTmp[[1]]
 covarColnames = gridTmp[[2]]
@@ -55,28 +56,49 @@ gwasMetadata = makeGwasMetadata(phecodeData, phenoData, phenoSummary)
 ############################################################
 # run cox regression
 
-coxLog = createLogFile(resultDir, 'cox')
+# TODO: make log file into tsv
+# datetime, phecode, phenoIdx, nPhecodes, chunkIdx, nChunks
+# first row: datetime, 'starting', NA, nPhecodes, NA, nChunks
 
-phenoPlinkList = foreach(ii = 1:nrow(gwasMetadata)) %dopar% {
-  whichSex = gwasMetadata$whichSex[ii]
-  phenoDataNow = phenoData[phecode == gwasMetadata$phecode[ii], .(grid, age)]
+phenoList = foreach(phenoIdx = 1:nrow(gwasMetadata), .combine = rbind) %dopar% {
+  whichSex = gwasMetadata$whichSex[phenoIdx]
+  phenoDataNow = phenoData[phecode == gwasMetadata$phecode[phenoIdx], .(grid, age)]
   inputBase = makeInput(phenoDataNow, gridData, whichSex,
                         params$pheno$minEvents, params$pheno$ageBuffer)
+  phenoPath = tempfile('pheno_', fileext = '.rds')
+  saveRDS(inputBase, phenoPath, compress = FALSE)
+  phenoPlink = makePhenoPlink(inputBase, gwasMetadata$phecodeStr[phenoIdx])
+  list(phenoPlink, phenoPath)}
 
-  gwasResult = runGwasCox(inputBase, genoData$genoFull, whichSex,
-                          params$gwas$nPC, params$gwas$covarsFromFile)
+coxLog = createLogFile(resultDir, 'cox')
+phenoPaths = unlist(phenoList[,2])
+createCoxGwasFiles(resultDir, gwasMetadata$coxFilename)
 
-  write_tsv(gwasResult, gzfile(file.path(resultDir, gwasMetadata$coxFilename[ii])))
-  appendLogFile(coxLog, gwasMetadata, ii)
-  makePhenoPlink(inputBase, gwasMetadata$phecodeStr[ii])}
+chunkIdxUnique = unique(snpData$chunkIdx)
+done = foreach(chunkIdxNow = chunkIdxUnique) %do% {
+  runGwasPhewasChunkCox(list(chunkIdx = chunkIdxNow),
+                        snpData[chunkIdx == chunkIdxNow],
+                        gwasMetadata, phenoPaths, params,
+                        resultDir, coxLog, length(chunkIdxUnique))}
 
+# data.table solution suddenly started giving error
+# done = snpData[, runGwasPhewasChunkCox(.BY, .SD, gwasMetadata, phenoPaths,
+#                                        params, resultDir, coxLog,
+#                                        length(unique(snpData$chunkIdx))),
+#                by = chunkIdx]
+
+done = foreach(filename = gwasMetadata$coxFilename) %dopar% {
+  system2('gzip', paste('-f', file.path(resultDir, filename)))}
+
+gwasMetadata[, coxFilename := paste0(coxFilename, '.gz')]
+unlink(phenoPaths)
 finishLogFile(coxLog)
 
 ############################################################
 # prepare data for plink
 
-plinkTmp = prepForPlink(colnames(genoData$genoFull$genotypes), gridData,
-                        covarColnames, gwasMetadata, phenoPlinkList)
+plinkTmp = prepForPlink(snpData, gridData, covarColnames,
+                        gwasMetadata, phenoList[,1])
 gwasMetadata = plinkTmp[[1]]
 plinkPaths = plinkTmp[[2]]
 rm(plinkTmp)
@@ -87,25 +109,26 @@ rm(plinkTmp)
 plinkArgs = makePlinkArgs(params$plink, plinkPaths)
 plinkLog = createLogFile(resultDir, 'logistic')
 
-done = foreach(ii = 1:nrow(gwasMetadata)) %dopar% {
+done = foreach(phenoIdx = 1:nrow(gwasMetadata)) %dopar% {
   # run plink
-  runGwasPlink(resultDir, gwasMetadata$phecodeStr[ii],
-               gwasMetadata$covarNum[ii], plinkArgs, params$plink$execPath)
+  runGwasPlink(resultDir, gwasMetadata$phecodeStr[phenoIdx],
+               gwasMetadata$covarNum[phenoIdx], plinkArgs, params$plink$execPath)
 
   # fix plink's stupid output spacing
-  outputFile = cleanPlinkOutput(resultDir, gwasMetadata$phecodeStr[ii])
+  outputFile = cleanPlinkOutput(resultDir, gwasMetadata$phecodeStr[phenoIdx])
 
   # rename and compress
-  file.rename(outputFile, file.path(resultDir, gwasMetadata$logisticFilename[ii]))
-  system2('gzip', paste('-f', file.path(resultDir, gwasMetadata$logisticFilename[ii])))
+  filepath = file.path(resultDir, gwasMetadata$logisticFilename[phenoIdx])
+  file.rename(outputFile, filepath)
+  system2('gzip', paste('-f', filepath))
 
-  appendLogFile(plinkLog, gwasMetadata, ii)}
+  appendLogFile(plinkLog, gwasMetadata, phenoIdx)}
 
 gwasMetadata[, logisticFilename := paste0(logisticFilename, '.gz')]
 finishLogFile(plinkLog)
 
 ############################################################
 
-d = c('genoData', 'phenoPlinkList', 'done', 'd')
+d = c('snpData', 'phenoList', 'done', 'd')
 save(list = setdiff(ls(), d), file = file.path(resultDir, 'workspace.Rdata'))
 write_tsv(gwasMetadata, file.path(resultDir, 'gwas_metadata.tsv'))
