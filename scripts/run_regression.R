@@ -11,25 +11,23 @@ procDir = file.path(procParent, params$datasetName)
 
 ############################################################
 
-if (Sys.getenv('SLURM_ARRAY_TASK_ID') != '') {
-  resultDir = paramDir
-} else {
+if (Sys.getenv('SLURM_ARRAY_TASK_ID') == '') {
   resultDir = file.path(resultParent, params$datasetName,
                         format(Sys.time(), '%Y%m%d_%H%M%S'))
-  writeResultDir(params, paramDir, resultDir)}
-
-if (Sys.getenv('SLURM_CPUS_PER_TASK') != '') {
-  registerDoParallel(cores = Sys.getenv('SLURM_CPUS_PER_TASK'))
+  writeResultDir(params, paramDir, resultDir)
 } else {
-  registerDoParallel(cores = params$slurm$cpusPerTask)}
+  resultDir = paramDir}
 
-# registerDoParallel(cores = 2)
+registerDoParallel(cores = params$slurm$cpusPerTask * params$slurm$doParFactor)
 
 ############################################################
 # load snp data
 
-snpData = selectSnps(params$geno, params$plink$dataPathPrefix,
-                     file.path(paramDir, params$snpSubsetFile))
+tmpData = loadSnpGenoData(params$geno, params$plink$dataPathPrefix,
+                          file.path(paramDir, params$snpSubsetFile))
+snpData = tmpData$snpData
+genoData = tmpData$genoData
+rm(tmpData)
 
 ############################################################
 # load grid data
@@ -53,6 +51,18 @@ rm(phenoTmp)
 
 gwasMetadata = makeGwasMetadata(phecodeData, phenoData, phenoSummary)
 
+phenoList = foreach(phenoIdx = 1:nrow(gwasMetadata), .combine = rbind) %dopar% {
+  whichSex = gwasMetadata$whichSex[phenoIdx]
+  phenoDataNow = phenoData[phecode == gwasMetadata$phecode[phenoIdx], .(grid, age)]
+  inputBase = makeInput(phenoDataNow, gridData, whichSex,
+                        params$pheno$minEvents, params$pheno$ageBuffer)
+  phenoFilename = tempfile('pheno_', tmpdir = '', fileext = '.rds')
+  saveRDS(inputBase, file.path(resultDir, phenoFilename), compress = FALSE)
+  phenoPlink = makePhenoPlink(inputBase, gwasMetadata$phecodeStr[phenoIdx])
+  list(phenoPlink, phenoFilename)}
+
+phenoFilenames = unlist(phenoList[,2])
+
 ############################################################
 # run cox regression
 
@@ -60,38 +70,21 @@ gwasMetadata = makeGwasMetadata(phecodeData, phenoData, phenoSummary)
 # datetime, phecode, phenoIdx, nPhecodes, chunkIdx, nChunks
 # first row: datetime, 'starting', NA, nPhecodes, NA, nChunks
 
-phenoList = foreach(phenoIdx = 1:nrow(gwasMetadata), .combine = rbind) %dopar% {
-  whichSex = gwasMetadata$whichSex[phenoIdx]
-  phenoDataNow = phenoData[phecode == gwasMetadata$phecode[phenoIdx], .(grid, age)]
-  inputBase = makeInput(phenoDataNow, gridData, whichSex,
-                        params$pheno$minEvents, params$pheno$ageBuffer)
-  phenoPath = tempfile('pheno_', fileext = '.rds')
-  saveRDS(inputBase, phenoPath, compress = FALSE)
-  phenoPlink = makePhenoPlink(inputBase, gwasMetadata$phecodeStr[phenoIdx])
-  list(phenoPlink, phenoPath)}
-
-coxLog = createLogFile(resultDir, 'cox')
-phenoPaths = unlist(phenoList[,2])
-createCoxGwasFiles(resultDir, gwasMetadata$coxFilename)
-
 chunkIdxUnique = unique(snpData$chunkIdx)
-done = foreach(chunkIdxNow = chunkIdxUnique) %do% {
+coxLog = createLogFile(resultDir, 'cox', length(chunkIdxUnique))
+
+gwasChunkMetadata = foreach(chunkIdxNow = chunkIdxUnique, .combine = rbind) %dopar% {
   runGwasPhewasChunkCox(list(chunkIdx = chunkIdxNow),
-                        snpData[chunkIdx == chunkIdxNow],
-                        gwasMetadata, phenoPaths, params,
-                        resultDir, coxLog, length(chunkIdxUnique))}
+                        snpData[chunkIdx == chunkIdxNow], genoData,
+                        gwasMetadata, phenoFilenames, params, resultDir,
+                        coxLog)}
 
-# data.table solution suddenly started giving error
-# done = snpData[, runGwasPhewasChunkCox(.BY, .SD, gwasMetadata, phenoPaths,
-#                                        params, resultDir, coxLog,
-#                                        length(unique(snpData$chunkIdx))),
-#                by = chunkIdx]
-
-done = foreach(filename = gwasMetadata$coxFilename) %dopar% {
-  system2('gzip', paste('-f', file.path(resultDir, filename)))}
-
+gatherGwasChunks(gwasChunkMetadata, gwasMetadata, resultDir)
+compressFiles(file.path(resultDir, gwasMetadata$coxFilename))
 gwasMetadata[, coxFilename := paste0(coxFilename, '.gz')]
-unlink(phenoPaths)
+
+unlink(file.path(resultDir, phenoFilenames))
+unlink(file.path(resultDir, gwasChunkMetadata$filename))
 finishLogFile(coxLog)
 
 ############################################################
@@ -129,6 +122,6 @@ finishLogFile(plinkLog)
 
 ############################################################
 
-d = c('snpData', 'phenoList', 'done', 'd')
+d = c('snpData', 'genoData', 'phenoList', 'done', 'd')
 save(list = setdiff(ls(), d), file = file.path(resultDir, 'workspace.Rdata'))
 write_tsv(gwasMetadata, file.path(resultDir, 'gwas_metadata.tsv'))

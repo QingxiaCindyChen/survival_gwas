@@ -1,10 +1,11 @@
+library('BEDMatrix')
+library('cowplot')
 library('data.table')
+library('doParallel')
 library('readr')
 library('lubridate')
-library('doParallel')
-library('snpStats')
-library('cowplot')
 library('qqman')
+library('survival')
 library('yaml')
 
 procParent = 'processed'
@@ -52,6 +53,7 @@ writeSlurmRun = function(p, resultDir) {
   txt1 = c('#!/bin/bash',
            '#SBATCH --mail-user=%s',
            '#SBATCH --mail-type=ALL',
+           '#SBATCH --constraint=[sandybridge|haswell|skylake]',
            '#SBATCH --nodes=1',
            '#SBATCH --ntasks=1',
            '#SBATCH --cpus-per-task=%d',
@@ -77,6 +79,7 @@ writeSlurmGather = function(p, resultDir) {
   txt = c('#!/bin/bash',
           '#SBATCH --mail-user=%s',
           '#SBATCH --mail-type=ALL',
+          '#SBATCH --constraint=[sandybridge|haswell|skylake]',
           '#SBATCH --nodes=1',
           '#SBATCH --ntasks=1',
           '#SBATCH --cpus-per-task=4',
@@ -117,7 +120,19 @@ gatherTaskResults = function(taskDirs, taskFiles, resultDir, subDir) {
 ############################################################
 # functions for loading data
 
-selectSnps = function(p, plinkDataPathPrefix, snpSubsetPath = NULL) {
+loadGenoData = function(plinkDataPathPrefix, editSampleNames = TRUE,
+                        editVariantNames = TRUE) {
+  genoData = BEDMatrix(plinkDataPathPrefix)
+  if (editSampleNames) {
+    rownames(genoData) = sapply(strsplit(rownames(genoData), '_'),
+                                function(r) r[1])}
+  if (editVariantNames) {
+    colnames(genoData) = substr(colnames(genoData), 1,
+                                nchar(colnames(genoData)) - 2)}
+  return(genoData)}
+
+
+loadSnpGenoData = function(p, plinkDataPathPrefix, snpSubsetPath = NULL) {
   warnOld = getOption('warn')
   options(warn = -1) # suppress harmless warning about NULL in read_tokens_
   snpsAll = read_table2(paste0(plinkDataPathPrefix, '.bim'), na = c('0', '-9'),
@@ -136,10 +151,15 @@ selectSnps = function(p, plinkDataPathPrefix, snpSubsetPath = NULL) {
   chunkIdx = sort(rep_len(1:ceiling(length(snpsIdx) / as.integer(p$maxSnpsPerChunk)),
                           length(snpsIdx)))
 
-  if (is.null(p$qc) || p$qc) {
+  if (is.null(p$qc) | !(isTRUE(p$qc) | isFALSE(p$qc))) {
+    stop('p$qc must be either TRUE or FALSE.')}
+
+  genoData = loadGenoData(plinkDataPathPrefix)
+
+  if (p$qc) { # TODO: needs to be rewritten
     snpData = foreach(chunkIdxNow = unique(chunkIdx), .combine = rbind) %dopar% {
       snpsIdxNow = snpsIdx[chunkIdxNow == chunkIdx]
-      genoFull = read.plink(plinkDataPathPrefix, select.snps = snpsIdxNow)
+      # genoFull = read.plink(plinkDataPathPrefix, select.snps = snpsIdxNow)
 
       genoSummary = col.summary(genoFull$genotypes)
       idx = (genoSummary$MAF >= p$minMaf) &
@@ -155,7 +175,7 @@ selectSnps = function(p, plinkDataPathPrefix, snpSubsetPath = NULL) {
                          snpIdx = snpsIdx,
                          chunkIdx = chunkIdx)}
 
-  return(snpData)}
+  return(list(snpData = snpData, genoData = genoData))}
 
 
 loadGrid = function(procDir, plinkDataPathPrefix, minRecLen, paramsGwas, paramDir = NULL) {
@@ -192,7 +212,6 @@ loadGrid = function(procDir, plinkDataPathPrefix, minRecLen, paramsGwas, paramDi
                      by.x = 'grid', by.y = 'IID') # not checking for name clashes
     covarColnames = c(covarColnames, paramsGwas$covarsFromFile)}
 
-  # genoTmp = data.table(fam)[, .(grid = pedigree, sex)]
   fam = read_table2(paste0(plinkDataPathPrefix, '.fam'),
                     col_names = FALSE, col_types = cols())
   setDT(fam)
@@ -225,24 +244,23 @@ loadPheno = function(procDir, p, gridData, phecodeSubsetPath) {
 ############################################################
 # functions for log files
 
-createLogFile = function(resultDir, fileSuffix) {
+createLogFile = function(resultDir, fileSuffix, n = NULL) {
   path = file.path(resultDir, sprintf('progress_%s.txt', fileSuffix))
   timeStarted = Sys.time()
   cat(sprintf('%s started analysis\n', timeStarted), file = path)
-  return(list(path = path, timeStarted = timeStarted))}
+  return(list(path = path, timeStarted = timeStarted, n = n))}
 
 
-appendLogFile = function(logFile, gwasMetadata, phenoIdx,
-                         chunkIdx = NULL, nChunks = NULL) {
+appendLogFile = function(logFile, gwasMetadata, phenoIdx, chunkIdx = NULL) {
   if (phenoIdx == 0) {
     txt = sprintf('%s loaded genotypes for chunk %d of %d\n',
-                  Sys.time(), chunkIdx, nChunks)
+                  Sys.time(), chunkIdx, logFile$n)
   } else if (is.null(chunkIdx)) {
     txt = sprintf('%s completed phecode %d of %d (%s)\n', Sys.time(),
                   phenoIdx, nrow(gwasMetadata), gwasMetadata$phecode[phenoIdx])
   } else {
     txt = sprintf('%s completed chunk %d of %d for phecode %d of %d (%s)\n',
-                  Sys.time(), chunkIdx, nChunks, phenoIdx,
+                  Sys.time(), chunkIdx, logFile$n, phenoIdx,
                   nrow(gwasMetadata), gwasMetadata$phecode[phenoIdx])}
   cat(txt, file = logFile$path, append = TRUE)
   invisible(0)}
@@ -250,8 +268,9 @@ appendLogFile = function(logFile, gwasMetadata, phenoIdx,
 
 finishLogFile = function(logFile) {
   timeElapsed = Sys.time() - logFile$timeStarted
-  cat(sprintf('Total time elapsed of %.2f %s\n', timeElapsed, attr(timeElapsed, 'units')),
-      file = logFile$path, append = TRUE)}
+  cat(sprintf('%s total time elapsed of %.2f %s\n', Sys.time(), timeElapsed,
+              attr(timeElapsed, 'units')), file = logFile$path, append = TRUE)
+  invisible(0)}
 
 ############################################################
 # functions for cox regression
@@ -286,14 +305,6 @@ makeInput = function(phenoData, gridData, whichSex, minEvents, ageBuffer) {
   return(input)}
 
 
-createCoxGwasFiles = function(resultDir, filenames) {
-  done = foreach(filename = filenames, .combine = c) %dopar% {
-    con = file(file.path(resultDir, filename))
-    writeLines('beta\tse\tpval\tsnp', con)
-    close(con)}
-  invisible(done)}
-
-
 getColnamesKeep = function(whichSex, nPC, covarsFromFile) {
   colnamesKeep = c('grid', 'age1', 'age2', 'status')
   if (whichSex == 'both') {
@@ -304,8 +315,8 @@ getColnamesKeep = function(whichSex, nPC, covarsFromFile) {
   return(colnamesKeep)}
 
 
-makeAgregInput = function(input, genoFull, snp) {
-  input[, genotype := as(genoFull$genotypes[grid, snp], 'numeric')[,1]]
+makeAgregInput = function(input, genoMat, snp) {
+  input[, genotype := genoMat[grid, snp]]
   setcolorder(input, c('grid', 'age1', 'age2', 'status', 'genotype'))
   idx = !is.na(input$genotype)
   x = as.matrix(input[idx, 5:ncol(input)])
@@ -319,14 +330,14 @@ runAgreg = function(x, y, control) {
   return(fit)}
 
 
-runGwasCox = function(inputBase, genoFull, whichSex, nPC, covarsFromFile) {
+runGwasCox = function(inputBase, genoMat, whichSex, nPC, covarsFromFile) {
   colnamesKeep = getColnamesKeep(whichSex, nPC, covarsFromFile)
   inputKeep = inputBase[, colnamesKeep, with = FALSE]
-  snps = colnames(genoFull$genotypes)
+  snps = colnames(genoMat)
   control = coxph.control()
 
   dVec = foreach(snp = snps, .combine = c) %do% {
-    agInput = makeAgregInput(inputKeep, genoFull, snp)
+    agInput = makeAgregInput(inputKeep, genoMat, snp)
     agFit = runAgreg(agInput$x, agInput$y, control)
     c(agFit$coefficients[1], sqrt(diag(agFit$var)[1]))}
 
@@ -337,22 +348,52 @@ runGwasCox = function(inputBase, genoFull, whichSex, nPC, covarsFromFile) {
   return(d)}
 
 
-runGwasPhewasChunkCox = function(byList, snpDataSubset, gwasMetadata, phenoPaths,
-                                 params, resultDir, coxLog, nChunks) {
-  genoFull = read.plink(params$plink$dataPathPrefix,
-                        select.snps = snpDataSubset$snpName)
-  appendLogFile(coxLog, gwasMetadata, 0, byList$chunkIdx, nChunks)
+runGwasPhewasChunkCox = function(byList, snpDataSubset, genoData, gwasMetadata,
+                                 phenoFilenames, params, resultDir, coxLog) {
+  genoMat = genoData[, snpDataSubset$snpIdx]
+  appendLogFile(coxLog, gwasMetadata, 0, byList$chunkIdx)
 
-  foreach(phenoIdx = 1:nrow(gwasMetadata), .combine = c) %dopar% {
+  gwasChunkMetadata = foreach(phenoIdx = 1:nrow(gwasMetadata), .combine = rbind) %do% {
     whichSex = gwasMetadata$whichSex[phenoIdx]
-    inputBase = readRDS(phenoPaths[phenoIdx])
+    inputBase = readRDS(file.path(resultDir, phenoFilenames[phenoIdx]))
 
-    gwasResult = runGwasCox(inputBase, genoFull, whichSex, params$gwas$nPC,
+    gwasResult = runGwasCox(inputBase, genoMat, whichSex, params$gwas$nPC,
                             params$gwas$covarsFromFile)
 
-    gwasResultPath = file.path(resultDir, gwasMetadata$coxFilename[phenoIdx])
-    write_tsv(gwasResult, gwasResultPath, append = TRUE)
-    appendLogFile(coxLog, gwasMetadata, phenoIdx, byList$chunkIdx, nChunks)}}
+    filePre = sprintf('%s_%.4d_', gwasMetadata$phecodeStr[phenoIdx], byList$chunkIdx)
+    filename = tempfile(filePre, tmpdir = '', fileext = '.tsv')
+    write_tsv(gwasResult, file.path(resultDir, filename), col_names = FALSE)
+    appendLogFile(coxLog, gwasMetadata, phenoIdx, byList$chunkIdx)
+
+    data.table(phecode = gwasMetadata$phecode[phenoIdx],
+               chunkIdx = byList$chunkIdx,
+               filename = filename)}
+  return(gwasChunkMetadata)}
+
+
+createGwasFiles = function(resultDir, filenames) {
+  done = foreach(filename = filenames, .combine = c) %dopar% {
+    con = file(file.path(resultDir, filename))
+    writeLines('beta\tse\tpval\tsnp', con)
+    close(con)}
+  invisible(done)}
+
+
+gatherGwasChunks = function(gwasChunkMetadata, gwasMetadata, resultDir) {
+  createGwasFiles(resultDir, gwasMetadata$coxFilename)
+  done = foreach(phenoIdx = 1:nrow(gwasMetadata), .combine = c) %dopar% {
+    gcmNow = gwasChunkMetadata[phecode == gwasMetadata$phecode[phenoIdx]]
+    catArgs = paste(file.path(resultDir, gcmNow$filename), '>>',
+                    file.path(resultDir, gwasMetadata$coxFilename[phenoIdx]),
+                    collapse = ' ')
+    system(paste('cat', catArgs))}
+  invisible(done)}
+
+
+compressFiles = function(filepaths) {
+  done = foreach(filepath = filepaths, .combine = c) %dopar% {
+    system2('gzip', paste('-f', filepath))}
+  invisible(done)}
 
 
 # runGwasCox = function(inputBase, snpData, plinkDataPathPrefix,

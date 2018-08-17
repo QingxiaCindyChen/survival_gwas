@@ -7,6 +7,7 @@ phecodeSubsetFile: 'phecodes_test.tsv'
 slurm:
   email: 'jakejhughey@gmail.com'
   cpusPerTask: 6
+  doparFactor: 2
   mem: '16G'
   time: '00:30:00' # d-hh:mm:ss
   nTasks: 1 # for job array
@@ -14,7 +15,7 @@ slurm:
 
 geno: # Lisa already filtered stringently
   qc: false
-  maxSnpsPerChunk: 1e4
+  maxSnpsPerChunk: 100
   minMaf: 0 # 0.01
   minCallRate: 0 # 0.95
   minHwePval: 0 # 0.001
@@ -35,8 +36,7 @@ gwas:
   covarsFromFile: ['b1', 'b2', 'b3', 'b4', 'b5', 'b6', 'b7', 'b8', 'b9', 'b10', 'b11', 'b12']
 
 plink:
-  dataPathPrefix: '/data/h_hughey_lab/hughejj1/genotype_data/mega/MEGA3_forPheWAS_01_Ws' # for accre
-  # dataPathPrefix: '/home/hughejj1/genotype_data/mega/MEGA3_forPheWAS_01_Ws' # for emerge servers
+  dataPathPrefix: '/home/hughejj1/data/genotype_data/mega/MEGA3_forPheWAS_01_Ws' # works on emerge and accre
   execPath: '/home/hughejj1/plink-1.90b6/plink'
   memSize: 512 # MB
   maxVif: 1e5 # reduce plink's tendency to output NA due to multicollinearity of spline bases
