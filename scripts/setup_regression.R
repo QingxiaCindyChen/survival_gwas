@@ -241,33 +241,50 @@ loadPheno = function(procDir, p, gridData, phecodeSubsetPath) {
 ############################################################
 # functions for log files
 
-createLogFile = function(resultDir, fileSuffix, n = NULL) {
-  path = file.path(resultDir, sprintf('progress_%s.txt', fileSuffix))
-  timeStarted = Sys.time()
-  cat(sprintf('%s started analysis\n', timeStarted), file = path)
-  return(list(path = path, timeStarted = timeStarted, n = n))}
+createLogFile = function(resultDir, fileSuffix, nPhecodes, nChunks = NULL) {
+  txt = c('datetime', 'phecode', 'phecodeIdx')
+  d = data.table(datetimeStarted = Sys.time(), nPhecodes = nPhecodes)
+  if (!is.null(nChunks)) {
+    txt = c(txt, 'chunkIdx')
+    d$nChunks = nChunks}
+
+  path = file.path(resultDir, sprintf('progress_%s.tsv', fileSuffix))
+  writeLines(paste(txt, collapse = '\t'), con = path)
+
+  metaPath = file.path(resultDir, sprintf('progress_%s_meta.tsv', fileSuffix))
+  write_tsv(d, metaPath)
+
+  return(list(path = path, metaPath = metaPath,
+              datetimeStarted = d$datetimeStarted,
+              nPhecodes = nPhecodes, nChunks = nChunks))}
 
 
-appendLogFile = function(logFile, gwasMetadata, phenoIdx, chunkIdx = NULL) {
-  if (phenoIdx == 0) {
-    txt = sprintf('%s loaded genotypes for chunk %d of %d\n',
-                  Sys.time(), chunkIdx, logFile$n)
-  } else if (is.null(chunkIdx)) {
-    txt = sprintf('%s completed phecode %d of %d (%s)\n', Sys.time(),
-                  phenoIdx, nrow(gwasMetadata), gwasMetadata$phecode[phenoIdx])
+appendLogFile = function(logFile, gwasMetadata, phecodeIdx, chunkIdx = NULL) {
+  if (is.null(logFile$nChunks)) {
+    # completed an unchunked phecode
+    d = data.table(datetime = Sys.time(),
+                   phecode = gwasMetadata$phecode[phecodeIdx],
+                   phecodeIdx = phecodeIdx)
+  } else if (phecodeIdx == 0) {
+    # loaded genotypes for a chunk
+    d = data.table(datetime = Sys.time(),
+                   phecode = NA,
+                   phecodeIdx = NA,
+                   chunkIdx = chunkIdx)
   } else {
-    txt = sprintf('%s completed chunk %d of %d for phecode %d of %d (%s)\n',
-                  Sys.time(), chunkIdx, logFile$n, phenoIdx,
-                  nrow(gwasMetadata), gwasMetadata$phecode[phenoIdx])}
-  cat(txt, file = logFile$path, append = TRUE)
-  invisible(0)}
+    # completed a chunk for a phecode
+    d = data.table(datetime = Sys.time(),
+                   phecode = gwasMetadata$phecode[phecodeIdx],
+                   phecodeIdx = phecodeIdx,
+                   chunkIdx = chunkIdx)}
+  return(write_tsv(d, logFile$path, append = TRUE))}
 
 
 finishLogFile = function(logFile) {
-  timeElapsed = Sys.time() - logFile$timeStarted
-  cat(sprintf('%s total time elapsed of %.2f %s\n', Sys.time(), timeElapsed,
-              attr(timeElapsed, 'units')), file = logFile$path, append = TRUE)
-  invisible(0)}
+  d = read_tsv(logFile$metaPath, col_types = cols())
+  d$timeElapsed = Sys.time() - d$datetimeStarted
+  d$timeElapsedUnits = attr(d$timeElapsed, 'units')
+  invisible(write_tsv(d, logFile$metaPath))}
 
 ############################################################
 # functions for cox regression

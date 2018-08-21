@@ -66,12 +66,8 @@ phenoFilenames = unlist(phenoList[,2])
 ############################################################
 # run cox regression
 
-# TODO: make log file into tsv
-# datetime, phecode, phenoIdx, nPhecodes, chunkIdx, nChunks
-# first row: datetime, 'starting', NA, nPhecodes, NA, nChunks
-
 chunkIdxUnique = unique(snpData$chunkIdx)
-coxLog = createLogFile(resultDir, 'cox', length(chunkIdxUnique))
+coxLog = createLogFile(resultDir, 'cox', nrow(gwasMetadata), length(chunkIdxUnique))
 
 gwasChunkMetadata = foreach(chunkIdxNow = chunkIdxUnique, .combine = rbind) %dopar% {
   runGwasPhewasChunkCox(list(chunkIdx = chunkIdxNow),
@@ -100,7 +96,7 @@ rm(plinkTmp)
 # run logistic regression in plink
 
 plinkArgs = makePlinkArgs(params$plink, plinkPaths)
-plinkLog = createLogFile(resultDir, 'logistic')
+plinkLog = createLogFile(resultDir, 'logistic', nrow(gwasMetadata))
 
 done = foreach(phenoIdx = 1:nrow(gwasMetadata)) %dopar% {
   # run plink
