@@ -1,15 +1,15 @@
 datasetName: 'mega'
 gridTable: 'LB_MEGA3'
 gridTableEuro: false # Lisa already filtered for European ancestry, so LB_MEGA3 has no euro column
-snpSubsetFile: 'snps_test20000.tsv'
+snpSubsetFile: null
 phecodeSubsetFile: 'phecodes_test.tsv'
 
 slurm:
   email: 'jakejhughey@gmail.com'
-  cpusPerTask: 6
-  doparFactor: 4
-  mem: '32G'
-  time: '5:00:00' # d-hh:mm:ss
+  cpusPerTask: 12
+  doparFactor: 3
+  mem: '64G'
+  time: '8:00:00' # d-hh:mm:ss
   nTasks: 1 # for job array
   lmodCollection: 'R343'
 

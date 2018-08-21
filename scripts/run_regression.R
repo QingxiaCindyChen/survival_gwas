@@ -18,7 +18,7 @@ if (Sys.getenv('SLURM_ARRAY_TASK_ID') == '') {
 } else {
   resultDir = paramDir}
 
-registerDoParallel(cores = params$slurm$cpusPerTask * params$slurm$doParFactor)
+registerDoParallel(cores = params$slurm$cpusPerTask * params$slurm$doparFactor)
 
 ############################################################
 # load snp data

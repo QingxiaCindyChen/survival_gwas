@@ -139,7 +139,7 @@ loadSnpGenoData = function(p, plinkDataPathPrefix, snpSubsetPath = NULL) {
                         col_names = FALSE, col_types = cols_only(X2 = 'c'))$X2
   options(warn = warnOld)
 
-  if (is.null(snpSubsetPath)) {
+  if (length(snpSubsetPath) == 0) {
     snpsIdx = 1:length(snpsAll)
   } else {
     snpsPref = unique(read_tsv(snpSubsetPath, col_names = FALSE, col_types = 'c')$X1)
@@ -150,9 +150,6 @@ loadSnpGenoData = function(p, plinkDataPathPrefix, snpSubsetPath = NULL) {
     p$maxSnpsPerChunk = 1e4}
   chunkIdx = sort(rep_len(1:ceiling(length(snpsIdx) / as.integer(p$maxSnpsPerChunk)),
                           length(snpsIdx)))
-
-  if (is.null(p$qc) | !(isTRUE(p$qc) | isFALSE(p$qc))) {
-    stop('p$qc must be either TRUE or FALSE.')}
 
   genoData = loadGenoData(plinkDataPathPrefix)
 
@@ -223,7 +220,7 @@ loadPheno = function(procDir, p, gridData, phecodeSubsetPath) {
   phenoData = read_csv(file.path(procDir, 'phenotype_data.csv.gz'), col_types = 'ccD')
   setDT(phenoData)
 
-  if (!is.null(phecodeSubsetPath) & length(phecodeSubsetPath) > 0) {
+  if (length(phecodeSubsetPath) > 0) {
     phecodes = unique(read_tsv(phecodeSubsetPath, col_types = 'c', col_names = FALSE)$X1)
     phenoData = phenoData[phecode %in% phecodes]}
 
