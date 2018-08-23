@@ -15,7 +15,7 @@ slurm:
 
 geno: # Lisa already filtered stringently
   qc: false
-  maxSnpsPerChunk: 1000
+  maxSnpsPerChunk: 2000
   minMaf: 0 # 0.01
   minCallRate: 0 # 0.95
   minHwePval: 0 # 0.001

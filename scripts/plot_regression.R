@@ -2,7 +2,7 @@ source(file.path('scripts', 'setup_regression.R'))
 
 cmdArgs = commandArgs(trailingOnly = TRUE)
 if (length(cmdArgs) == 0) {
-  resultDir = 'results/exome/20180720_110952'
+  resultDir = 'results/mega/20180817_161501'
 } else {
   resultDir = cmdArgs[1]}
 
@@ -10,21 +10,19 @@ params = read_yaml(file.path(resultDir, 'params.yaml'))
 procDir = file.path(procParent, params$datasetName)
 plotDir = file.path(resultDir, 'plots')
 dir.create(plotDir, recursive = TRUE)
-# load(file.path(resultDir, 'workspace.Rdata'))
 
-registerDoParallel(cores = 2)
-
-testing = TRUE
-if (testing) {
-  maxPvalLoad = 1
-} else {
-  maxPvalLoad = 1e-3}
+registerDoParallel()
+# maxPvalLoad = 1
+maxPvalLoad = 1e-2
 
 ############################################################
 
-genoData = loadGeno(procDir, params$geno, file.path(resultDir, params$snpSubsetFile))
-gwasMetadata = read_tsv(file.path(resultDir, 'gwas_metadata.tsv'), col_types = 'cccccdc')
+gwasMetadata = read_tsv(file.path(resultDir, 'gwas_metadata.tsv'),
+                        col_types = 'cccccdc')
 setDT(gwasMetadata)
+
+mapData = read_csv(file.path(procDir, 'map_data.csv.gz'), col_types = 'iccicc')
+setDT(mapData)
 
 ############################################################
 
@@ -32,18 +30,21 @@ gwasDataTmp = loadGwas(resultDir, gwasMetadata, maxPvalLoad)
 gwasData = gwasDataTmp[[1]]
 gwasLambdaData = gwasDataTmp[[2]]
 
-gData = mergeAll(gwasData, phecodeData, gwasMetadata, genoData)
+gwasData[, pval := ifelse(is.na(pval), 1, pval)]
+gwasData = mergeAll(gwasData, phecodeData, gwasMetadata, mapData)
+
+rm(gwasDataTmp)
 
 ############################################################
 
-gData[, plotManhattanAndQq(.BY, .SD, plotDir),
-      by = .(phecode, phecodeStr, phenotype, method)]
+gwasData[, plotManhattanAndQq(.BY, .SD, plotDir, cex = 0.5),
+         by = .(phecode, phecodeStr, phenotype, method)]
 
 ############################################################
 
-# maxPval = 1e-5
-maxPval = 1
-gDataSig = filterForSignificance(gData, maxPval)
+maxPval = 1e-5
+# maxPval = 1
+gwasDataSig = filterForSignificance(gwasData, maxPval)
 
 ############################################################
 
@@ -54,20 +55,20 @@ lnSz = 0.5
 lnCol = 'gray'
 
 # hazard ratios are extremely similar to odds ratios
-resultTmp = plotEffectSize(gDataSig, lnCol, lnSz, ptShp, ptSz, ptAlph)
-gDataEffect = resultTmp[[1]]
+resultTmp = plotEffectSize(gwasDataSig, lnCol, lnSz, ptShp, ptSz, ptAlph)
+gwasDataEffect = resultTmp[[1]]
 pEffect = resultTmp[[2]]
 
-cor(gDataEffect$logistic, gDataEffect$cox, use = 'na.or.complete')
+cor(gwasDataEffect$logistic, -gwasDataEffect$cox, use = 'na.or.complete')
 
 # p-values at the low end are smaller
-resultTmp = plotPval(gDataSig, lnCol, lnSz, ptShp, ptSz, ptAlph)
-gDataPval = resultTmp[[1]]
+resultTmp = plotPval(gwasDataSig, lnCol, lnSz, ptShp, ptSz, ptAlph)
+gwasDataPval = resultTmp[[1]]
 pPval = resultTmp[[2]]
 
 # standard errors are slightly lower for cox
-resultTmp = plotSe(gDataSig)
-gDataSe = resultTmp[[1]]
+resultTmp = plotSe(gwasDataSig)
+gwasDataSe = resultTmp[[1]]
 pSe = resultTmp[[2]]
 
 # genomic inflation factors are similar or slightly higher
@@ -78,11 +79,11 @@ pLambda = plotLambda(gwasLambdaData, lnCol, lnSz, ptShp, ptSz, ptAlph)
 
 ############################################################
 
-a = merge(gDataPval, gDataSig, by = c('phecode', 'snp'))
+a = merge(gwasDataPval, gwasDataSig, by = c('phecode', 'snp'))
 
-p = ggplot(a) +
-  geom_point(aes(x = log10(maf), y = cox - logistic), shape = ptShp, size = ptSz, alpha = ptAlph)
-print(p)
+# p = ggplot(a) +
+#   geom_point(aes(x = log10(maf), y = cox - logistic), shape = ptShp, size = ptSz, alpha = ptAlph)
+# print(p)
 
 p = ggplot(a) +
   geom_point(aes(x = log10(nCases), y = cox - logistic), shape = ptShp, size = ptSz, alpha = ptAlph) +
@@ -95,7 +96,7 @@ p = ggplot(a) +
 print(p)
 
 
-a1 = dcast(gData, phecode + snp ~ method, value.var = 'pval')
+a1 = dcast(gwasData, phecode + snp ~ method, value.var = 'pval')
 a2 = a1[, .(r = cor(-log10(logistic), -log10(cox))), by = phecode]
 p = ggplot(a2) +
   stat_ecdf(aes(x = r), pad = FALSE)

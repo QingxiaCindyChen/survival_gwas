@@ -34,6 +34,11 @@ write_csv(gridData, gzfile(file.path(procDir, 'grid_data.csv.gz')))
 
 ############################################################
 
+mapData = makeMapData(params$plink$dataPathPrefix)
+write_csv(mapData, gzfile(file.path(procDir, 'map_data.csv.gz')))
+
+############################################################
+
 if (!is.null(params$geno$aimsFile)) {
   snpgdsBED2GDS(paste0(params$plink$dataPathPrefix, '.bed'),
                 paste0(params$plink$dataPathPrefix, '.fam'),

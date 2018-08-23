@@ -46,7 +46,7 @@ writeResultDir = function(params, paramDir, resultDir) {
   for (filename in filenames) {
     if (!is.null(filename)) {
       file.copy(file.path(paramDir, filename), resultDir)}}
-    write_yaml(params, file.path(resultDir, 'params.yaml'))}
+  write_yaml(params, file.path(resultDir, 'params.yaml'))}
 
 
 writeSlurmRun = function(p, resultDir) {
@@ -409,27 +409,6 @@ compressFiles = function(filepaths) {
     system2('gzip', paste('-f', filepath))}
   invisible(done)}
 
-
-# runGwasCox = function(inputBase, snpData, plinkDataPathPrefix,
-#                       whichSex, nPC, covarsFromFile) {
-#   colnamesKeep = getColnamesKeep(whichSex, nPC, covarsFromFile)
-#   inputKeep = inputBase[, colnamesKeep, with = FALSE]
-#   control = coxph.control()
-#
-#   dVec = foreach(chunkIdxNow = unique(snpData$chunkIdx), .combine = c) %do% {
-#     snpsIdx = snpData[chunkIdx == chunkIdxNow, snpIdx]
-#     genoFull = read.plink(plinkDataPathPrefix, select.snps = snpsIdx)
-#     foreach(snp = colnames(genoFull$genotypes), .combine = c) %do% {
-#       agInput = makeAgregInput(inputKeep, genoFull, snp)
-#       agFit = runAgreg(agInput$x, agInput$y, control)
-#       c(agFit$coefficients[1], sqrt(diag(agFit$var)[1]))}}
-#
-#   idx = seq(1, length(dVec), 2)
-#   d = data.table(beta = dVec[idx], se = dVec[idx + 1])
-#   d[, pval := 2 * pnorm(-abs(beta / se))]
-#   d[, snp := snpData$snpName] # works because chunkIdx is already sorted
-#   return(d)}
-
 ############################################################
 # functions for logistic regression using plink
 
@@ -529,23 +508,23 @@ loadGwas = function(resultDir, gwasMetadata, maxPvalLoad) {
   return(list(gd, gdLambda))}
 
 
-mergeAll = function(gwasData, phecodeData, gwasMetadata, genoData) {
-  mapData = setDT(genoData$genoFull$map)
-  mapData = mapData[, .(snp = snp.name, chr = chromosome, pos = position)]
-  genoSummary = setDT(genoData$genoSummary, keep.rownames = TRUE)
-  genoSummary = genoSummary[, .(snp = rn, maf = MAF)]
-  gData = merge(gwasData, phecodeData[, .(phecode, phenotype, group)],
-                by = 'phecode')
-  gData = merge(gData, gwasMetadata[, .(phecode, nCases)], by = 'phecode')
-  gData = merge(gData, mapData, by = 'snp')
-  gData = merge(gData, genoSummary, by = 'snp')
-  return(gData)}
+mergeAll = function(gwasData, phecodeData, gwasMetadata, mapData) {
+  gwasData = merge(gwasData, phecodeData[, .(phecode, phenotype, group)],
+                   by = 'phecode')
+  gwasData = merge(gwasData, gwasMetadata[, .(phecode, phecodeStr, nCases)],
+                   by = 'phecode')
+  gwasData = merge(gwasData, mapData[, .(snp, chr, pos)], by = 'snp')
+  # genoSummary = setDT(genoData$genoSummary, keep.rownames = TRUE)
+  # genoSummary = genoSummary[, .(snp = rn, maf = MAF)]
+  # gwasData = merge(gwasData, genoSummary, by = 'snp')
+  return(gwasData)}
 
 
-plotManhattan = function(byList, dtSubset, plotDir, main = NULL) {
+plotManhattan = function(byList, dtSubset, plotDir, main = NULL, ...) {
   filename = sprintf('%s_%s_man.pdf', byList$phecodeStr, byList$method)
   pdf(file.path(plotDir, filename), width = 6, height = 4)
-  manhattan(dtSubset, p = 'pval', snp = 'snp', chr = 'chr', bp = 'pos', main = main)
+  manhattan(dtSubset, p = 'pval', snp = 'snp', chr = 'chr', bp = 'pos',
+            main = main, ...)
   dev.off()}
 
 
@@ -556,37 +535,45 @@ plotQq = function(byList, dtSubset, plotDir, main = NULL) {
   dev.off()}
 
 
-plotManhattanAndQq = function(byList, dtSubset, plotDir) {
+plotManhattanAndQq = function(byList, dtSubset, plotDir, ...) {
   main = sprintf('%s (%s), %s regression', byList$phenotype,
                  byList$phecode, byList$method)
-  plotManhattan(byList, dtSubset, plotDir, main)
-  plotQq(byList, dtSubset, plotDir, main)}
+  dt = dtSubset[!is.na(pval)]
+  plotManhattan(byList, dt, plotDir, main, ...)
+  plotQq(byList, dt, plotDir, main)}
 
 
-filterForSignificance = function(gData, maxPval) {
-  d = gData[, if (mean(-log(pval), na.rm = TRUE) >= -log(maxPval)) .SD,
-            by = .(phecode, snp)]
+filterForSignificance = function(gwasData, maxPval) {
+  d = gwasData[, if (mean(-log(pval), na.rm = TRUE) >= -log(maxPval)) .SD,
+               by = .(phecode, snp)]
   d[, logRatio := log2(exp(beta))]
   d[, negLogPval := -log10(pval)]
   return(d)}
 
 
-plotEffectSize = function(gData, lnCol, lnSz, ptShp, ptSz, ptAlph) {
-  d = dcast(gData, phecode + snp ~ method, value.var = 'logRatio')
+plotEffectSize = function(gwasData, lnCol, lnSz, ptShp, ptSz, ptAlph, md = TRUE) {
+  d = dcast(gwasData, phecode + snp ~ method, value.var = 'logRatio')
+  if (md) {
+    p = ggplot(d) +
+      geom_hline(yintercept = 0, color = lnCol, size = lnSz) +
+      geom_point(aes(x = (logistic - cox)/2, y = cox + logistic),
+                 shape = ptShp, size = ptSz, alpha = ptAlph) +
+      labs(title = 'Effect size', x = 'Mean of hazard ratio and odds ratio',
+           y = 'Odds ratio - hazard ratio')
+  } else {
+    pTmp = ggplot(d) +
+      geom_abline(slope = 1, intercept = 0, color = lnCol, size = lnSz) +
+      geom_point(aes(x = -cox, y = logistic), shape = ptShp, size = ptSz, alpha = ptAlph) +
+      labs(title = 'Effect size', x = 'log2(hazard ratio)', y = 'log2(odds ratio)')
 
-  pTmp = ggplot(d) +
-    geom_abline(slope = 1, intercept = 0, color = lnCol, size = lnSz) +
-    geom_point(aes(x = logistic, y = cox), shape = ptShp, size = ptSz, alpha = ptAlph) +
-    labs(title = 'Effect size', x = 'log2(hazard ratio)', y = 'log2(odds ratio)')
-
-  paramList = list(col = 'white', fill = 'darkgray', size = 0.25)
-  p = ggExtra::ggMarginal(pTmp, type = 'histogram', binwidth = 0.15, boundary = 0,
-                          xparams = paramList, yparams = paramList)
+    paramList = list(col = 'white', fill = 'darkgray', size = 0.25)
+    p = ggExtra::ggMarginal(pTmp, type = 'histogram', binwidth = 0.15, boundary = 0,
+                            xparams = paramList, yparams = paramList)}
   return(list(d, p))}
 
 
-plotPval = function(gData, lnCol, lnSz, ptShp, ptSz, ptAlph) {
-  d = dcast(gData, phecode + snp ~ method, value.var = 'negLogPval')
+plotPval = function(gwasData, lnCol, lnSz, ptShp, ptSz, ptAlph) {
+  d = dcast(gwasData, phecode + snp ~ method, value.var = 'negLogPval')
   p = ggplot(d) +
     geom_hline(yintercept = 0, color = lnCol, size = lnSz) +
     geom_point(aes(x = (logistic + cox) / 2, y = cox - logistic),
@@ -597,8 +584,8 @@ plotPval = function(gData, lnCol, lnSz, ptShp, ptSz, ptAlph) {
   return(list(d, p))}
 
 
-plotSe = function(gData, binwidth = 0.0005, limits = c(-0.015, 0.005)) {
-  d = dcast(gData, phecode + snp ~ method, value.var = 'se')
+plotSe = function(gwasData, binwidth = 0.0005, limits = c(-0.015, 0.005)) {
+  d = dcast(gwasData, phecode + snp ~ method, value.var = 'se')
   p = ggplot(d) +
     geom_histogram(aes(x = cox - logistic), binwidth = binwidth, boundary = 0,
                    size = 0.25, fill = 'darkgray', color = 'white') +

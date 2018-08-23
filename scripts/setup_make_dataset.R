@@ -56,6 +56,13 @@ makeGridData = function(con, gridTable, euro = TRUE) {
   return(gridData[order(grid)])}
 
 
+makeMapData = function(plinkDataPathPrefix) {
+  mapData = read_table2(paste0(plinkDataPathPrefix, '.bim'), na = c('0', '-9'),
+                        col_names = FALSE, col_types = 'iccicc')
+  colnames(mapData) = c('chr', 'snp', 'cM', 'pos', 'allele1', 'allele2')
+  return(mapData)}
+
+
 makePcData = function(genoSummary, gdsFile, paramDir, p) {
   aims = read_csv(file.path(paramDir, p$aimsFile),
                   col_names = FALSE, col_types = 'c')$X1
