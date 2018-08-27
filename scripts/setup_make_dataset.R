@@ -63,17 +63,26 @@ makeMapData = function(plinkDataPathPrefix) {
   return(mapData)}
 
 
-makePcData = function(genoSummary, gdsFile, paramDir, p) {
-  aims = read_csv(file.path(paramDir, p$aimsFile),
-                  col_names = FALSE, col_types = 'c')$X1
+makePcData = function(plinkDataPathPrefix, paramsGeno, paramDir, nThreads) {
+  gdsFile = snpgdsOpen(paste0(params$plink$dataPathPrefix, '.gds'))
 
-  idx = (genoSummary$MAF >= p$minMaf) &
-    (genoSummary$Call.rate >= p$minCallRate) &
-    (2 * pnorm(-abs(genoSummary$z.HWE)) >= p$minHwePval) &
-    (rownames(genoSummary) %in% aims)
+  # currently not using paramsGeno$qc
+  if (is.null(paramsGeno$aimsFile)) {
+    snps = unlist(snpgdsLDpruning(gdsFile, ld.threshold = 0.2))
+  } else {
+    # not finished for exome
+    # aims = read_csv(file.path(paramDir, paramsGeno$aimsFile),
+    #                 col_names = FALSE, col_types = 'c')$X1
+    #
+    # idx = (genoSummary$MAF >= paramsGeno$minMaf) &
+    #   (genoSummary$Call.rate >= paramsGeno$minCallRate) &
+    #   (2 * pnorm(-abs(genoSummary$z.HWE)) >= paramsGeno$minHwePval) &
+    #   (rownames(genoSummary) %in% aims)
+    # snps =
+  }
+  pcRaw = snpgdsPCA(gdsFile, snp.id = snps, eigen.cnt = 10,
+                    num.thread = nThreads, algorithm = 'randomized')
 
-  pcRaw = snpgdsPCA(gdsFile, snp.id = rownames(genoSummary)[idx],
-                    eigen.cnt = 10, num.thread = 8, algorithm = 'randomized')
   pcData = data.table(pcRaw$sample.id, pcRaw$eigenvect)
   colnames(pcData) = c('grid', paste0('PC', 1:ncol(pcRaw$eigenvect)))
-  return(pcData)}
+  return(list(pcRaw, pcData))}

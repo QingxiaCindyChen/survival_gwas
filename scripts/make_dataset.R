@@ -39,13 +39,16 @@ write_csv(mapData, gzfile(file.path(procDir, 'map_data.csv.gz')))
 
 ############################################################
 
-if (!is.null(params$geno$aimsFile)) {
-  snpgdsBED2GDS(paste0(params$plink$dataPathPrefix, '.bed'),
-                paste0(params$plink$dataPathPrefix, '.fam'),
-                paste0(params$plink$dataPathPrefix, '.bim'),
-                paste0(params$plink$dataPathPrefix, '.gds'))
-  gdsFile = snpgdsOpen(paste0(params$plink$dataPathPrefix, '.gds'))
+snpgdsBED2GDS(paste0(params$plink$dataPathPrefix, '.bed'),
+              paste0(params$plink$dataPathPrefix, '.fam'),
+              paste0(params$plink$dataPathPrefix, '.bim'),
+              paste0(params$plink$dataPathPrefix, '.gds'))
 
-  set.seed(3)
-  pcData = makePcData(genoData$genoSummary, gdsFile, paramDir, params$geno)
-  write_csv(pcData, gzfile(file.path(procDir, 'pc_data.csv.gz')))}
+set.seed(3)
+pcDataTmp = makePcData(params$plink$dataPathPrefix, params$geno, paramDir,
+                       params$slurm$cpusPerTask * params$slurm$doparFactor)
+pcRaw = pcDataTmp[[1]]
+pcData = pcDataTmp[[2]]
+
+saveRDS(pcRaw, file.path(procDir, 'pc_data_raw.rds'))
+write_csv(pcData, gzfile(file.path(procDir, 'pc_data.csv.gz')))
