@@ -265,16 +265,11 @@ appendLogFile = function(logFile, gwasMetadata, phecodeIdx, chunkIdx = NULL) {
     d = data.table(datetime = Sys.time(),
                    phecode = gwasMetadata$phecode[phecodeIdx],
                    phecodeIdx = phecodeIdx)
-  } else if (phecodeIdx == 0) {
-    # loaded genotypes for a chunk
-    d = data.table(datetime = Sys.time(),
-                   phecode = NA,
-                   phecodeIdx = NA,
-                   chunkIdx = chunkIdx)
   } else {
-    # completed a chunk for a phecode
+    # loaded genotypes for a chunk or completed a chunk for a phecode
     d = data.table(datetime = Sys.time(),
-                   phecode = gwasMetadata$phecode[phecodeIdx],
+                   phecode = ifelse(phecodeIdx == 0, NA,
+                                    gwasMetadata$phecode[phecodeIdx]),
                    phecodeIdx = phecodeIdx,
                    chunkIdx = chunkIdx)}
   return(write_tsv(d, logFile$path, append = TRUE))}
@@ -317,6 +312,19 @@ makeInput = function(phenoData, gridData, whichSex, minEvents, ageBuffer) {
   input[, age2 := ifelse(status, age, last_age)]
   input[, age1 := min(first_age, max(0, age2 - ageBuffer)), by = grid]
   return(input)}
+
+
+prepPhenoDataForGwas = function(resultDir, gwasMetadata, phenoData, gridData,
+                                minEvents, ageBuffer) {
+  phenoList = foreach(phenoIdx = 1:nrow(gwasMetadata), .combine = rbind) %dopar% {
+    whichSex = gwasMetadata$whichSex[phenoIdx]
+    phenoDataNow = phenoData[phecode == gwasMetadata$phecode[phenoIdx], .(grid, age)]
+    inputBase = makeInput(phenoDataNow, gridData, whichSex, minEvents, ageBuffer)
+    phenoFilename = tempfile('pheno_', tmpdir = '', fileext = '.rds')
+    saveRDS(inputBase, file.path(resultDir, phenoFilename), compress = FALSE)
+    phenoPlink = makePhenoPlink(inputBase, gwasMetadata$phecodeStr[phenoIdx])
+    list(phenoPlink, phenoFilename)}
+  return(phenoList)}
 
 
 getColnamesKeep = function(whichSex, nPC, covarsFromFile) {

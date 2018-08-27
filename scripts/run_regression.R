@@ -51,16 +51,9 @@ rm(phenoTmp)
 
 gwasMetadata = makeGwasMetadata(phecodeData, phenoData, phenoSummary)
 
-phenoList = foreach(phenoIdx = 1:nrow(gwasMetadata), .combine = rbind) %dopar% {
-  whichSex = gwasMetadata$whichSex[phenoIdx]
-  phenoDataNow = phenoData[phecode == gwasMetadata$phecode[phenoIdx], .(grid, age)]
-  inputBase = makeInput(phenoDataNow, gridData, whichSex,
-                        params$pheno$minEvents, params$pheno$ageBuffer)
-  phenoFilename = tempfile('pheno_', tmpdir = '', fileext = '.rds')
-  saveRDS(inputBase, file.path(resultDir, phenoFilename), compress = FALSE)
-  phenoPlink = makePhenoPlink(inputBase, gwasMetadata$phecodeStr[phenoIdx])
-  list(phenoPlink, phenoFilename)}
-
+phenoList = prepPhenoDataForGwas(resultDir, gwasMetadata, phenoData,
+                                 gridData, params$pheno$minEvents,
+                                 params$pheno$ageBuffer)
 phenoFilenames = unlist(phenoList[,2])
 
 ############################################################
