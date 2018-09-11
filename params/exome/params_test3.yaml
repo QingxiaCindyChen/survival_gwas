@@ -26,7 +26,7 @@ pheno:
 
 gwas:
   nPC: 2 # for both cox and logistic regression
-  splineDf: 3 # for last_age in logistic regression (ns::splines)
+  splineDf: 3 # for last_age in logistic regression (splines::ns)
 
 plink:
   dataPathPrefix: '/data/h_hughey_lab/hughejj1/genotype_data/exome/Exome_GRID_Euro'

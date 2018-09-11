@@ -29,10 +29,10 @@ pheno:
   ageBuffer: 1 # years; for calculating age1 in cox regression
 
 gwas:
-  cox: true
+  cox: false
   logistic: true
   nPC: 4 # for both cox and logistic regression
-  splineDf: 3 # for last_age in logistic regression (splines::ns)
+  splineDf: 1 # for last_age in logistic regression (splines::ns)
   covarFile: null # in addition to sex and age
   covarFileDelim: ' '
   covarsFromFile: null

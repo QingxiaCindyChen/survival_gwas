@@ -49,65 +49,73 @@ rm(phenoTmp)
 
 ############################################################
 
-gwasMetadata = makeGwasMetadata(phecodeData, phenoData, phenoSummary)
+gwasMetadata = makeGwasMetadata(phecodeData, phenoData, phenoSummary,
+                                params$gwas)
 
-phenoList = prepPhenoDataForGwas(resultDir, gwasMetadata, phenoData,
-                                 gridData, params$pheno$minEvents,
-                                 params$pheno$ageBuffer)
-phenoFilenames = unlist(phenoList[,2])
+if (params$gwas$cox || params$gwas$logistic) {
+  phenoList = prepPhenoDataForGwas(resultDir, gwasMetadata, phenoData,
+                                   gridData, params$pheno$minEvents,
+                                   params$pheno$ageBuffer)
+  phenoFilenames = unlist(phenoList[,2])
+}
 
 ############################################################
 # run cox regression
 
-chunkIdxUnique = unique(snpData$chunkIdx)
-coxLog = createLogFile(resultDir, 'cox', nrow(gwasMetadata), length(chunkIdxUnique))
+if (params$gwas$cox) {
+  chunkIdxUnique = unique(snpData$chunkIdx)
+  coxLog = createLogFile(resultDir, 'cox', nrow(gwasMetadata),
+                         length(chunkIdxUnique))
 
-gwasChunkMetadata = foreach(chunkIdxNow = chunkIdxUnique, .combine = rbind) %dopar% {
-  runGwasPhewasChunkCox(list(chunkIdx = chunkIdxNow),
-                        snpData[chunkIdx == chunkIdxNow], genoData,
-                        gwasMetadata, phenoFilenames, params, resultDir,
-                        coxLog)}
+  gwasChunkMetadata = foreach(chunkIdxNow = chunkIdxUnique, .combine = rbind) %dopar% {
+    runGwasPhewasChunkCox(list(chunkIdx = chunkIdxNow),
+                          snpData[chunkIdx == chunkIdxNow], genoData,
+                          gwasMetadata, phenoFilenames, params, resultDir,
+                          coxLog)}
 
-gatherGwasChunks(gwasChunkMetadata, gwasMetadata, resultDir)
-compressFiles(file.path(resultDir, gwasMetadata$coxFilename))
-gwasMetadata[, coxFilename := paste0(coxFilename, '.gz')]
+  gatherGwasChunks(gwasChunkMetadata, gwasMetadata, resultDir)
+  compressFiles(file.path(resultDir, gwasMetadata$coxFilename))
+  gwasMetadata[, coxFilename := paste0(coxFilename, '.gz')]
+
+  unlink(file.path(resultDir, gwasChunkMetadata$filename))
+  finishLogFile(coxLog)
+}
 
 unlink(file.path(resultDir, phenoFilenames))
-unlink(file.path(resultDir, gwasChunkMetadata$filename))
-finishLogFile(coxLog)
 
 ############################################################
 # prepare data for plink
 
-plinkTmp = prepForPlink(snpData, gridData, covarColnames,
-                        gwasMetadata, phenoList[,1])
-gwasMetadata = plinkTmp[[1]]
-plinkPaths = plinkTmp[[2]]
-rm(plinkTmp)
+if (params$gwas$logistic) {
+  plinkTmp = prepForPlink(snpData, gridData, covarColnames, gwasMetadata,
+                          phenoList[,1], resultDir)
+  gwasMetadata = plinkTmp[[1]]
+  plinkFilenames = plinkTmp[[2]]
+  rm(plinkTmp)
+}
 
 ############################################################
 # run logistic regression in plink
 
-plinkArgs = makePlinkArgs(params$plink, plinkPaths)
-plinkLog = createLogFile(resultDir, 'logistic', nrow(gwasMetadata))
+if (params$gwas$logistic) {
+  plinkArgs = makePlinkArgs(params$plink, file.path(resultDir, plinkFilenames))
+  plinkLog = createLogFile(resultDir, 'logistic', nrow(gwasMetadata))
 
-done = foreach(phenoIdx = 1:nrow(gwasMetadata)) %dopar% {
-  # run plink
-  runGwasPlink(resultDir, gwasMetadata$phecodeStr[phenoIdx],
-               gwasMetadata$covarNum[phenoIdx], plinkArgs, params$plink$execPath)
+  done = foreach(phenoIdx = 1:nrow(gwasMetadata)) %dopar% {
+    runGwasPlink(resultDir, gwasMetadata$phecodeStr[phenoIdx],
+                 gwasMetadata$covarNum[phenoIdx], plinkArgs,
+                 params$plink$execPath)
 
-  # fix plink's stupid output spacing
-  outputFile = cleanPlinkOutput(resultDir, gwasMetadata$phecodeStr[phenoIdx])
+    cleanPlinkOutput(resultDir, gwasMetadata$phecodeStr[phenoIdx],
+                     gwasMetadata$logisticFilename[phenoIdx])
 
-  # rename and compress
-  filepath = file.path(resultDir, gwasMetadata$logisticFilename[phenoIdx])
-  file.rename(outputFile, filepath)
-  system2('gzip', paste('-f', filepath))
+    appendLogFile(plinkLog, gwasMetadata, phenoIdx)}
 
-  appendLogFile(plinkLog, gwasMetadata, phenoIdx)}
+  gwasMetadata[, logisticFilename := paste0(logisticFilename, '.gz')]
 
-gwasMetadata[, logisticFilename := paste0(logisticFilename, '.gz')]
-finishLogFile(plinkLog)
+  unlink(file.path(resultDir, plinkFilenames))
+  finishLogFile(plinkLog)
+}
 
 ############################################################
 

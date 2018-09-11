@@ -2,7 +2,7 @@ source(file.path('scripts', 'setup_regression.R'))
 
 cmdArgs = commandArgs(trailingOnly = TRUE)
 if (length(cmdArgs) == 0) {
-  resultDir = 'results/mega/20180817_161501'
+  resultDir = 'results/mega/20180905_093452'
 } else {
   resultDir = cmdArgs[1]}
 
@@ -59,7 +59,7 @@ resultTmp = plotEffectSize(gwasDataSig, lnCol, lnSz, ptShp, ptSz, ptAlph)
 gwasDataEffect = resultTmp[[1]]
 pEffect = resultTmp[[2]]
 
-cor(gwasDataEffect$logistic, -gwasDataEffect$cox, use = 'na.or.complete')
+cor(gwasDataEffect$logistic, gwasDataEffect$cox, use = 'na.or.complete')
 
 # p-values at the low end are smaller
 resultTmp = plotPval(gwasDataSig, lnCol, lnSz, ptShp, ptSz, ptAlph)

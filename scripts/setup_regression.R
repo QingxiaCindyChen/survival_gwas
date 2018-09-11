@@ -281,14 +281,40 @@ finishLogFile = function(logFile) {
   d$timeElapsedUnits = attr(d$timeElapsed, 'units')
   invisible(write_tsv(d, logFile$metaPath))}
 
+
+getProgress = function(resultDir) {
+  progFilenames = c('progress_cox_meta.tsv', 'progress_cox.tsv',
+                    'progress_logistic_meta.tsv', 'progress_logistic.tsv')
+  names(progFilenames) = c('coxMeta', 'cox', 'logisticMeta', 'logistic')
+
+  warnOld = getOption('warn')
+  options(warn = -1) # suppress warning about parsers not matching colnames
+
+  progList = foreach(progFilename = progFilenames) %do% {
+    progFilepath = file.path(resultDir, progFilename)
+    if (file.exists(progFilepath)) {
+      d = setDT(read_tsv(progFilepath, col_types = cols(phecode = 'c')))
+    } else {
+      d = NA}}
+  options(warn = warnOld)
+
+  names(progList) = names(progFilenames)
+  return(progList)}
+
 ############################################################
 # functions for cox regression
 
-makeGwasMetadata = function(phecodeData, phenoData, phenoSummary) {
+makeGwasMetadata = function(phecodeData, phenoData, phenoSummary, p) {
   d = phecodeData[phecode %in% unique(phenoData$phecode), .(phecode, whichSex)]
   d[, phecodeStr := paste0('phe', gsub('.', 'p', phecode, fixed = TRUE))]
-  d[, coxFilename := paste0(phecodeStr, '_cox.tsv')]
-  d[, logisticFilename := paste0(phecodeStr, '_logistic.tsv')]
+  if (p$cox) {
+    d[, coxFilename := paste0(phecodeStr, '_cox.tsv')]
+  } else {
+    d[, coxFilename := NA]}
+  if (p$logistic) {
+    d[, logisticFilename := paste0(phecodeStr, '_logistic.tsv')]
+  } else {
+    d[, logisticFilename := NA]}
   return(merge(d, phenoSummary, by = 'phecode'))}
 
 
@@ -316,14 +342,18 @@ makeInput = function(phenoData, gridData, whichSex, minEvents, ageBuffer) {
 
 prepPhenoDataForGwas = function(resultDir, gwasMetadata, phenoData, gridData,
                                 minEvents, ageBuffer) {
+  nCores = getDoParWorkers()
+  registerDoParallel(cores = 4)
   phenoList = foreach(phenoIdx = 1:nrow(gwasMetadata), .combine = rbind) %dopar% {
     whichSex = gwasMetadata$whichSex[phenoIdx]
     phenoDataNow = phenoData[phecode == gwasMetadata$phecode[phenoIdx], .(grid, age)]
     inputBase = makeInput(phenoDataNow, gridData, whichSex, minEvents, ageBuffer)
-    phenoFilename = tempfile('pheno_', tmpdir = '', fileext = '.rds')
+    phenoFilename = tempfile(sprintf('pheno_%s_', gwasMetadata$phecodeStr[phenoIdx]),
+                             tmpdir = '', fileext = '.rds')
     saveRDS(inputBase, file.path(resultDir, phenoFilename), compress = FALSE)
     phenoPlink = makePhenoPlink(inputBase, gwasMetadata$phecodeStr[phenoIdx])
     list(phenoPlink, phenoFilename)}
+  registerDoParallel(cores = nCores)
   return(phenoList)}
 
 
@@ -427,74 +457,82 @@ makePhenoPlink = function(inputBase, phecodeStr) {
   return(phenoPlinkNow)}
 
 
-prepForPlink = function(snpData, gridData, covarColnames, gwasMetadata, phenoPlinkList) {
-  snpPath = tempfile('snp_', fileext = '.tsv')
-  write_tsv(snpData[, .(snpName)], snpPath, col_names = FALSE)
+prepForPlink = function(snpData, gridData, covarColnames, gwasMetadata,
+                        phenoPlinkList, resultDir) {
+  snpFile = tempfile('snp_', tmpdir = '', fileext = '.tsv')
+  write_tsv(snpData[, .(snpName)], file.path(resultDir, snpFile), col_names = FALSE)
 
   covarData = gridData[, .(FID = grid, IID = grid)]
   covarData = cbind(covarData, gridData[, c(covarColnames, 'sex'), with = FALSE])
-  gwasMetadata[, covarNum := paste0('1-', ncol(covarData) - ifelse(whichSex == 'both', 2, 3))]
-  covarPath = tempfile('covar_', fileext = '.tsv')
-  write_tsv(covarData, covarPath)
+  gwasMetadata[, covarNum := paste0('3-', ncol(covarData) - ifelse(whichSex == 'both', 0, 1))]
+  covarFile = tempfile('covar_', tmpdir = '', fileext = '.tsv')
+  write_tsv(covarData, file.path(resultDir, covarFile))
 
   phenoPlink = Reduce(function(...) merge(..., all = TRUE), phenoPlinkList)
   phenoPlink[is.na(phenoPlink)] = -9
   colnames(phenoPlink)[1] = 'FID'
   phenoPlink[, IID := FID]
   setcolorder(phenoPlink, c(1, ncol(phenoPlink)))
-  phenoPath = tempfile('pheno_', fileext = '.tsv')
-  write_tsv(phenoPlink, phenoPath)
+  phenoFile = tempfile('pheno_', tmpdir = '', fileext = '.tsv')
+  write_tsv(phenoPlink, file.path(resultDir, phenoFile))
 
-  return(list(gwasMetadata, list(snp = snpPath, covar = covarPath, pheno = phenoPath)))}
+  return(list(gwasMetadata, list(snp = snpFile, covar = covarFile, pheno = phenoFile)))}
 
 
 makePlinkArgs = function(p, paths) {
-  sprintf('%s --bfile %s --extract %s --covar %s --pheno %s --memory %d --vif %d',
-          '--1 --logistic hide-covar beta --ci 0.95',
-          p$dataPathPrefix, paths$snp, paths$covar,
-          paths$pheno, as.numeric(p$memSize), as.numeric(p$maxVif))}
+  sprintf('%s --bfile %s --extract %s --covar %s --pheno %s --memory %d --vif %d --max-corr %.10g',
+          '--threads 1 --covar-variance-standardize --1 --glm hide-covar',
+          p$dataPathPrefix, paths$snp, paths$covar, paths$pheno,
+          as.numeric(p$memSize), as.numeric(p$maxVif), as.numeric(p$maxCorr))}
 
 
 runGwasPlink = function(resultDir, phecodeStr, covarNum, plinkArgs, execPath) {
-  argsNow = sprintf('%s --pheno-name %s --covar-number %s --out %s',
+  argsNow = sprintf('%s --pheno-name %s --covar-col-nums %s --out %s',
                     plinkArgs, phecodeStr, covarNum,
                     file.path(resultDir, phecodeStr))
   system2(execPath, argsNow)}
 
 
-cleanPlinkOutput = function(resultDir, phecodeStr) {
-  outputFile = file.path(resultDir, paste0(phecodeStr, '.assoc.logistic'))
-  tmpFile = tempfile(paste0(phecodeStr, '_'))
-  system(sprintf("cat %s | tr -s ' ' '\t' > %s", outputFile, tmpFile))
-  system(sprintf("cat %s | sed 's/^[[:space:]]*//g' | sed 's/[[:space:]]*$//g' > %s",
-                 tmpFile, outputFile))
-  unlink(tmpFile)
-  return(outputFile)}
+cleanPlinkOutput = function(resultDir, phecodeStr, filenameNew, compress = TRUE) {
+  filenameOrig = sprintf('%s.%s.glm.logistic', phecodeStr, phecodeStr)
+  unlink(file.path(resultDir, paste0(filenameOrig, '.id')))
+  file.rename(file.path(resultDir, filenameOrig),
+              file.path(resultDir, filenameNew))
+  if (compress) {
+    system2('gzip', paste('-f', file.path(resultDir, filenameNew)))
+    filenameNew = paste0(filenameNew, '.gz')}
+  invisible(filenameNew)}
 
 ############################################################
 
 loadGwasCox = function(path) {
   # col_type 'n' chokes on exponential notation
   d = setDT(read_tsv(path, col_types = 'dddc'))
-  d[, beta := -beta] # coefficients from cox are for the major allele
+  # d[, beta := -beta] # coefficients from cox are for the major allele
   return(d)}
 
 
 loadGwasLogistic = function(path) {
-  d = setDT(read_tsv(path, col_types = 'dcdccddddddd'))
-  colnames(d) = tolower(colnames(d))
-  d = d[, .(beta, se, pval = p, snp = snp)]
+  #CHROM	POS	ID	REF	ALT	A1	TEST	OBS_CT	OR	SE	Z_STAT	P
+  d = setDT(read_tsv(path, col_types = 'ddcccccddddd'))
+  d = d[, .(beta = log(OR), se = SE, pval = P, snp = ID)]
   return(d)}
 
 
 loadGwasPerPhecode = function(resultDir, coxFilename, logisticFilename) {
-  coxFilepath = file.path(resultDir, coxFilename)
-  dCox = loadGwasCox(coxFilepath)
-  dCox[, method := 'cox']
+  if (!is.na(coxFilename)) {
+    coxFilepath = file.path(resultDir, coxFilename)
+    dCox = loadGwasCox(coxFilepath)
+    dCox[, method := 'cox']
+  } else {
+    dCox = data.table()}
 
-  logisticFilepath = file.path(resultDir, logisticFilename)
-  dLogistic = loadGwasLogistic(logisticFilepath)
-  dLogistic[, method := 'logistic']
+  if (!is.na(logisticFilename)) {
+    logisticFilepath = file.path(resultDir, logisticFilename)
+    dLogistic = loadGwasLogistic(logisticFilepath)
+    dLogistic[, method := 'logistic']
+  } else {
+    dLogistic = data.table()}
   return(rbind(dCox, dLogistic))}
 
 
@@ -507,7 +545,8 @@ loadGwas = function(resultDir, gwasMetadata, maxPvalLoad) {
     dLambda = d[, .(lambdaMed = median((beta / se)^2, na.rm = TRUE) /
                       qchisq(0.5, 1)), by = .(phecode, method)]
 
-    d = d[, if (mean(log(pval), na.rm = TRUE) <= log(maxPvalLoad)) .SD, by = snp]
+    d = d[, if (any(!is.na(pval)) && mean(log(pval), na.rm = TRUE) <= log(maxPvalLoad)) .SD,
+          by = snp]
     list(d, dLambda)}
 
   gd = rbindlist(gdList[,1], use.names = TRUE)
@@ -564,14 +603,15 @@ plotEffectSize = function(gwasData, lnCol, lnSz, ptShp, ptSz, ptAlph, md = TRUE)
   if (md) {
     p = ggplot(d) +
       geom_hline(yintercept = 0, color = lnCol, size = lnSz) +
-      geom_point(aes(x = (logistic - cox)/2, y = cox + logistic),
+      # geom_point(aes(x = (logistic - cox)/2, y = cox + logistic),
+      geom_point(aes(x = (logistic + cox) / 2, y = logistic - cox),
                  shape = ptShp, size = ptSz, alpha = ptAlph) +
       labs(title = 'Effect size', x = 'Mean of hazard ratio and odds ratio',
            y = 'Odds ratio - hazard ratio')
   } else {
     pTmp = ggplot(d) +
       geom_abline(slope = 1, intercept = 0, color = lnCol, size = lnSz) +
-      geom_point(aes(x = -cox, y = logistic), shape = ptShp, size = ptSz, alpha = ptAlph) +
+      geom_point(aes(x = cox, y = logistic), shape = ptShp, size = ptSz, alpha = ptAlph) +
       labs(title = 'Effect size', x = 'log2(hazard ratio)', y = 'log2(odds ratio)')
 
     paramList = list(col = 'white', fill = 'darkgray', size = 0.25)
