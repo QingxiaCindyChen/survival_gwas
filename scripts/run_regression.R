@@ -98,7 +98,8 @@ if (params$gwas$logistic) {
 # run logistic regression in plink
 
 if (params$gwas$logistic) {
-  plinkArgs = makePlinkArgs(params$plink, file.path(resultDir, plinkFilenames))
+  plinkFilepaths = lapply(plinkFilenames, function(f) file.path(resultDir, f))
+  plinkArgs = makePlinkArgs(params$plink, plinkFilepaths)
   plinkLog = createLogFile(resultDir, 'logistic', nrow(gwasMetadata))
 
   done = foreach(phenoIdx = 1:nrow(gwasMetadata)) %dopar% {
