@@ -3,7 +3,6 @@ library('cowplot')
 library('data.table')
 library('doParallel')
 library('readr')
-library('lubridate')
 library('qqman')
 library('survival')
 library('yaml')
@@ -181,8 +180,8 @@ loadGrid = function(procDir, plinkDataPathPrefix, minRecLen, paramsGwas, paramDi
 
   gridData = read_csv(file.path(procDir, 'grid_data.csv.gz'), col_types = 'ccDDD')
   setDT(gridData)
-  gridData[, first_age := time_length(first_entry_date - dob, 'years')]
-  gridData[, last_age := time_length(last_entry_date - dob, 'years')]
+  gridData[, first_age := as.numeric(first_entry_date - dob, units = 'days') / 365.242]
+  gridData[, last_age := as.numeric(last_entry_date - dob, units = 'days') / 365.242]
   gridData[, rec_len := last_age - first_age]
   gridData = gridData[first_age >= 0 & rec_len >= minRecLen]
 
@@ -225,7 +224,7 @@ loadPheno = function(procDir, p, gridData, phecodeSubsetPath) {
     phenoData = phenoData[phecode %in% phecodes]}
 
   phenoData = merge(phenoData, gridData[, .(grid, dob, sex)], by = 'grid')
-  phenoData[, age := time_length(entry_date - dob, 'years')]
+  phenoData[, age := as.numeric(entry_date - dob, units = 'days') / 365.242]
   phenoData = phenoData[age <= p$maxAgeAtEvent]
 
   phenoData = merge(phenoData, phecodeData[, .(phecode, whichSex)], by = 'phecode')
@@ -349,7 +348,7 @@ prepPhenoDataForGwas = function(resultDir, gwasMetadata, phenoData, gridData,
     phenoDataNow = phenoData[phecode == gwasMetadata$phecode[phenoIdx], .(grid, age)]
     inputBase = makeInput(phenoDataNow, gridData, whichSex, minEvents, ageBuffer)
     phenoFilename = tempfile(sprintf('pheno_%s_', gwasMetadata$phecodeStr[phenoIdx]),
-                             tmpdir = '', fileext = '.rds')
+                             tmpdir = '.', fileext = '.rds')
     saveRDS(inputBase, file.path(resultDir, phenoFilename), compress = FALSE)
     phenoPlink = makePhenoPlink(inputBase, gwasMetadata$phecodeStr[phenoIdx])
     list(phenoPlink, phenoFilename)}
@@ -413,7 +412,7 @@ runGwasPhewasChunkCox = function(byList, snpDataSubset, genoData, gwasMetadata,
                             params$gwas$covarsFromFile)
 
     filePre = sprintf('%s_%.4d_', gwasMetadata$phecodeStr[phenoIdx], byList$chunkIdx)
-    filename = tempfile(filePre, tmpdir = '', fileext = '.tsv')
+    filename = tempfile(filePre, tmpdir = '.', fileext = '.tsv')
     write_tsv(gwasResult, file.path(resultDir, filename), col_names = FALSE)
     appendLogFile(coxLog, gwasMetadata, phenoIdx, byList$chunkIdx)
 
@@ -459,13 +458,13 @@ makePhenoPlink = function(inputBase, phecodeStr) {
 
 prepForPlink = function(snpData, gridData, covarColnames, gwasMetadata,
                         phenoPlinkList, resultDir) {
-  snpFile = tempfile('snp_', tmpdir = '', fileext = '.tsv')
+  snpFile = tempfile('snp_', tmpdir = '.', fileext = '.tsv')
   write_tsv(snpData[, .(snpName)], file.path(resultDir, snpFile), col_names = FALSE)
 
   covarData = gridData[, .(FID = grid, IID = grid)]
   covarData = cbind(covarData, gridData[, c(covarColnames, 'sex'), with = FALSE])
   gwasMetadata[, covarNum := paste0('3-', ncol(covarData) - ifelse(whichSex == 'both', 0, 1))]
-  covarFile = tempfile('covar_', tmpdir = '', fileext = '.tsv')
+  covarFile = tempfile('covar_', tmpdir = '.', fileext = '.tsv')
   write_tsv(covarData, file.path(resultDir, covarFile))
 
   phenoPlink = Reduce(function(...) merge(..., all = TRUE), phenoPlinkList)
@@ -473,7 +472,7 @@ prepForPlink = function(snpData, gridData, covarColnames, gwasMetadata,
   colnames(phenoPlink)[1] = 'FID'
   phenoPlink[, IID := FID]
   setcolorder(phenoPlink, c(1, ncol(phenoPlink)))
-  phenoFile = tempfile('pheno_', tmpdir = '', fileext = '.tsv')
+  phenoFile = tempfile('pheno_', tmpdir = '.', fileext = '.tsv')
   write_tsv(phenoPlink, file.path(resultDir, phenoFile))
 
   return(list(gwasMetadata, list(snp = snpFile, covar = covarFile, pheno = phenoFile)))}
