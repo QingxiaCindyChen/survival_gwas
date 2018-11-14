@@ -14,7 +14,7 @@ setDT(assocDataRaw)
 colnames(assocDataRaw) = gsub('/|\\-|\\s', '_', tolower(colnames(assocDataRaw)))
 colnames(assocDataRaw) = gsub('\\[|\\]|\\(|\\)', '', tolower(colnames(assocDataRaw)))
 
-studyPhecodeMap = read_csv(file.path(procDir, 'catalog_study_phecode.csv'),
+studyPhecodeMap = read_csv(file.path('params', 'catalog_study_phecode.csv'),
                            col_types = 'cc')
 setDT(studyPhecodeMap)
 
@@ -85,47 +85,46 @@ getSnpInfo = function(snps) {
   return(snpInfo)}
 
 
-# getLdProxy = function(snps, pop = 'EUR', r2 = TRUE, proxyDir = NULL, logPath = NULL) {
-#   urlBase = 'https://analysistools.nci.nih.gov/LDlink/LDlinkRest/ldproxy?'
-#   d = foreach(snp = snps, .combine = rbind) %dopar% {
-#     urlFull = sprintf('%svar=%s&pop=%s&r2_d=%s',
-#                       urlBase, snp, pop, ifelse(r2, 'r2', 'd'))
-#     curlRaw = curl_fetch_memory(urlFull)
-#     dNow = setDT(read_tsv(rawToChar(curlRaw$content)))
-#     if (!is.null(proxyDir)) {
-#       write_tsv(dNow, file.path(proxyDir, sprintf('%s.tsv', snp)))}
-#     if (!is.null(logPath)) {
-#       write_tsv(data.table(datetime = Sys.time(), rsid = snp), logPath,
-#                 append = TRUE)}
-#     dNow[, rsid := snp]
-#     dNow}
-#   setcolorder(d, 'rsid')
-#   return(d)}
-
-
-getLdProxy = function(snps, pop = 'EUR', r2 = TRUE, proxyDir = NULL,
-                      logPath = NULL) {
+getLdProxyRaw = function(snps, proxyDir, pop = 'EUR', r2 = TRUE,
+                         logPath = NULL) {
   urlBase = 'https://analysistools.nci.nih.gov/LDlink/LDlinkRest/ldproxy?'
-  d = foreach(snp = snps, .combine = rbind) %dopar% {
+  d = foreach(snp = snps) %dopar% {
     urlFull = sprintf('%svar=%s&pop=%s&r2_d=%s',
                       urlBase, snp, pop, ifelse(r2, 'r2', 'd'))
-    trying = TRUE
-    while (trying) {
-      tryCatch({
-        curlRaw = curl_fetch_memory(urlFull)
-        trying = FALSE
-      }, error = function(e){}, finally = {})}
-    # curlRaw = curl_fetch_memory(urlFull)
 
-    dNow = setDT(read_tsv(rawToChar(curlRaw$content)))
-    if (!is.null(proxyDir)) {
-      write_tsv(dNow, file.path(proxyDir, sprintf('%s.tsv', snp)))}
+    ldFilepath = file.path(proxyDir, sprintf('%s.tsv', snp))
+    if (file.exists(ldFilepath)) {
+      dNow = setDT(read_tsv(ldFilepath))
+    } else {
+      trying = TRUE
+      while (trying) {
+        tryCatch({
+          curlRaw = curl_fetch_memory(urlFull)
+          trying = FALSE
+        }, error = function(e){}, finally = {})}
+      dNow = setDT(read_tsv(rawToChar(curlRaw$content)))
+      write_tsv(dNow, ldFilepath)}
+
     if (!is.null(logPath)) {
       write_tsv(data.table(datetime = Sys.time(), rsid = snp), logPath,
                 append = TRUE)}
-    dNow[, rsid := snp]
     dNow}
-  setcolorder(d, 'rsid')
+  names(d) = snps
+  return(d)}
+
+
+getLdProxy = function(dList, assocDataUnique, minLd = 0.8) {
+  d = foreach(dRaw = dList, rsidRaw = names(dList), .combine = rbind) %dopar% {
+    if (ncol(dRaw) == 10) {
+      dNow = dRaw[R2 >= minLd, .(rsid = rsidRaw, rsid2 = RS_Number, chrPos = Coord, r2 = R2)]
+      dNow[, c('chrTmp', 'posTmp') := tstrsplit(chrPos, ':', fixed = TRUE)]
+      dNow[, chr := as.integer(substr(chrTmp, 4, nchar(chrTmp)))]
+      dNow[, pos := as.integer(posTmp)]
+      dNow[, c('chrTmp', 'posTmp', 'chrPos') := NULL]
+      setcolorder(dNow, c('rsid', 'rsid2', 'chr', 'pos', 'r2'))
+    } else {
+      dNow = assocDataUnique[rsid == rsidRaw, .(rsid, rsid2 = rsidRaw, chr, pos, r2 = 1)]}
+    dNow}
   return(d)}
 
 ############################################################
@@ -163,27 +162,24 @@ assocData[, .(nAssoc = uniqueN(ldBlock)), by = phecode]
 ############################################################
 # get the proxy snps
 
+minLd = 0.8
+
 proxyDir = file.path(procDir, 'ldproxy')
 dir.create(proxyDir, recursive = TRUE, showWarnings = FALSE)
 logPath = file.path(procDir, 'ldproxy_progress.tsv')
 writeLines(paste(c('datetime', 'rsid'), collapse = '\t'), con = logPath)
 
-d = getLdProxy(unique(assocData$rsid), proxyDir = proxyDir, logPath = logPath)
-# d = getLdProxy(unique(assocData$rsid)[1:20], proxyDir = proxyDir, logPath = logPath)
+ldProxyList = getLdProxyRaw(unique(assocData$rsid), proxyDir = proxyDir,
+                            logPath = logPath)
 
-minLd = 0.8
-d1 = d[R2 >= minLd, .(rsid, rsid2 = RS_Number, chrPos = Coord, r2 = R2)]
-d1[, c('chrTmp', 'posTmp') := tstrsplit(chrPos, ':', fixed = TRUE)]
-d1[, chr := as.integer(substr(chrTmp, 4, nchar(chrTmp)))]
-d1[, pos := as.integer(posTmp)]
-d1[, c('chrTmp', 'posTmp', 'chrPos') := NULL]
+ldProxyData = getLdProxy(ldProxyList, assocDataUnique, minLd)
 
-# maybe this part and below should be in a separate script,
-# since it's specific to a platform (i.e., mega)
-d2 = merge(d1, mapData[, .(snp, chr, pos)], by = c('chr', 'pos'))
+# maybe the lines below should be in a separate script,
+# since they're specific to a platform (i.e., mega)
+ldProxyMega = merge(ldProxyData, mapData[, .(snp, chr, pos)], by = c('chr', 'pos'))
 
-d3 = merge(assocData[, .(phecode, rsid, ldBlock)],
-           d2[, .(rsid, rsid2, snp)], by = 'rsid')
-d3 = unique(d3[, .(phecode, ldBlock, rsid2, snp)])
+expandedAssocData = merge(assocData[, .(phecode, rsid, ldBlock)],
+                          ldProxyMega[, .(rsid, rsid2, snp)], by = 'rsid')
+expandedAssocData = unique(expandedAssocData[, .(phecode, ldBlock, rsid2, snp)])
 
-write_tsv(d3, file.path(procParent, 'mega', 'catalog_assoc_data.tsv'))
+write_tsv(expandedAssocData, file.path(procParent, 'mega', 'catalog_assoc_data.tsv'))

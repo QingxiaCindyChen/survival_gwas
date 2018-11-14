@@ -2,7 +2,7 @@ source(file.path('scripts', 'setup_regression.R'))
 
 cmdArgs = commandArgs(trailingOnly = TRUE)
 if (length(cmdArgs) == 0) {
-  resultDir = 'results/mega/20180905_093452'
+  resultDir = 'results/mega/20181030_104520'
 } else {
   resultDir = cmdArgs[1]}
 
@@ -37,8 +37,11 @@ rm(gwasDataTmp)
 
 ############################################################
 
-gwasData[, plotManhattanAndQq(.BY, .SD, plotDir, cex = 0.5),
+gwasData[, plotManhattan(.BY, .SD, plotDir, cex = 0.5),
          by = .(phecode, phecodeStr, phenotype, method)]
+
+# gwasData[, plotQq(.BY, .SD, plotDir),
+#          by = .(phecode, phecodeStr, phenotype, method)]
 
 ############################################################
 
@@ -74,30 +77,30 @@ pSe = resultTmp[[2]]
 # genomic inflation factors are similar or slightly higher
 pLambda = plotLambda(gwasLambdaData, lnCol, lnSz, ptShp, ptSz, ptAlph)
 
-# p = plot_grid(p1, p2, p3, p4, align = 'hv', axis = 'tb', nrow = 2)
-# ggsave(file.path(resultDir, 'exome_full.pdf'), plot = p, width = 6, height = 5.75)
+p = plot_grid(pEffect, pPval, pSe, pLambda, nrow = 2, align = 'hv', axis = 'tb')
+ggsave(file.path(plotDir, 'summary.pdf'), plot = p, width = 6, height = 5.75)
 
 ############################################################
 
-a = merge(gwasDataPval, gwasDataSig, by = c('phecode', 'snp'))
-
+# a = merge(gwasDataPval, gwasDataSig, by = c('phecode', 'snp'))
+#
 # p = ggplot(a) +
 #   geom_point(aes(x = log10(maf), y = cox - logistic), shape = ptShp, size = ptSz, alpha = ptAlph)
 # print(p)
-
-p = ggplot(a) +
-  geom_point(aes(x = log10(nCases), y = cox - logistic), shape = ptShp, size = ptSz, alpha = ptAlph) +
-  geom_smooth(aes(x = log10(nCases), y = cox - logistic), size = 0.5, method = 'loess', span = 0.5)
-print(p)
-
-p = ggplot(a) +
-  geom_point(aes(x = logRatio, y = cox - logistic), shape = ptShp, size = ptSz, alpha = ptAlph) +
-  geom_smooth(aes(x = logRatio, y = cox - logistic), size = 0.5, method = 'loess', span = 0.5)
-print(p)
-
-
-a1 = dcast(gwasData, phecode + snp ~ method, value.var = 'pval')
-a2 = a1[, .(r = cor(-log10(logistic), -log10(cox))), by = phecode]
-p = ggplot(a2) +
-  stat_ecdf(aes(x = r), pad = FALSE)
-print(p)
+#
+# p = ggplot(a) +
+#   geom_point(aes(x = log10(nCases), y = cox - logistic), shape = ptShp, size = ptSz, alpha = ptAlph) +
+#   geom_smooth(aes(x = log10(nCases), y = cox - logistic), size = 0.5, method = 'loess', span = 0.5)
+# print(p)
+#
+# p = ggplot(a) +
+#   geom_point(aes(x = logRatio, y = cox - logistic), shape = ptShp, size = ptSz, alpha = ptAlph) +
+#   geom_smooth(aes(x = logRatio, y = cox - logistic), size = 0.5, method = 'loess', span = 0.5)
+# print(p)
+#
+#
+# a1 = dcast(gwasData, phecode + snp ~ method, value.var = 'pval')
+# a2 = a1[, .(r = cor(-log10(logistic), -log10(cox))), by = phecode]
+# p = ggplot(a2) +
+#   stat_ecdf(aes(x = r), pad = FALSE)
+# print(p)

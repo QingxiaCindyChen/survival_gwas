@@ -2,7 +2,7 @@ datasetName: 'mega'
 gridTable: 'LB_MEGA3'
 gridTableEuro: false # Lisa already filtered for European ancestry, so LB_MEGA3 has no euro column
 snpSubsetFile: null
-phecodeSubsetFile: 'phecodes_catalog15_2.tsv'
+phecodeSubsetFile: 'phecodes_catalog50.tsv'
 
 slurm:
   email: 'jakejhughey@gmail.com'

@@ -1,6 +1,11 @@
 library('data.table')
 library('readr')
 
+# criteria:
+# disease_trait corresponds to phecode (e.g., not severity, survival, or interaction)
+# >=1000 European ancestry cases
+# >=1000 European ancestry controls
+
 procDir = 'processed'
 studyFilename = 'gwas_catalog_v1.0.2-studies_r2018-08-28.tsv'
 
@@ -38,6 +43,7 @@ setcolorder(phecodeData, c('pattern', 'pheno_clean', 'phenotype'))
 #                         col_names = FALSE, col_types = 'c')$X1
 # phecodeDataKeep = phecodeData[phecode %in% phecodesTest]
 
+# phecodeSummary = read_tsv(file.path('processed/mega/phecode_summary_in_catalog.tsv'))
 phecodeSummary = read_tsv(file.path('processed/mega/phecode_summary.tsv'))
 setDT(phecodeSummary)
 phecodeDataKeep = merge(phecodeData, phecodeSummary, by = 'phecode')
@@ -56,19 +62,37 @@ getCartesianProd = function(d1, d2) {
 
 sdn = unique(studyData[(association_count > 0) &
                          grepl('\\d{1}\\,\\d{3}', initial_sample_size) &
-                         grepl('european', initial_sample_size, ignore.case = TRUE),
-                       .(study_accession, pubmedid, date, initial_sample_size, study, disease_trait)])
-a1 = getCartesianProd(sdn, phecodeDataKeep[, .(pattern, phenotype, phecode)])
+                         grepl('european', initial_sample_size, ignore.case = TRUE) &
+                         !grepl(', ', mapped_trait_uri),
+                       .(study_accession, pubmedid, date, initial_sample_size,
+                         study, disease_trait)])
 
-a2 = a1[, if (grepl(pattern, disease_trait, ignore.case = TRUE)) .SD,
-        by = 1:nrow(a1)]
-
-a3 = a2[phecode == '250.2']
+# a1 = getCartesianProd(sdn, phecodeDataKeep[, .(pattern, phenotype, phecode)])
+#
+# a2 = a1[, if (grepl(pattern, disease_trait, ignore.case = TRUE)) .SD,
+#         by = 1:nrow(a1)]
+#
+# a3 = a2[phecode == '250.2']
 # a3 = a2[phecode == phecodesTest[1]]
 
 # a3 = a2[grepl('gout|uric|urate', disease_trait, ignore.case = TRUE)]
 # a3 = a2[grepl('multiple sclerosis', disease_trait, ignore.case = TRUE)]
 # a3 = a2[grepl('prostate cancer', disease_trait, ignore.case = TRUE)]
 
-a = sdn['triglycerides' == tolower(disease_trait)]
-# a = sdn[grepl('hypertriglyceridemia', disease_trait, ignore.case = TRUE)]
+#################################
+
+phecodesDone = read_csv('processed/gwas_catalog/catalog_phecodes_done.csv', col_types = 'c')$phecode
+pheDone = phecodeDataKeep[phecode %in% phecodesDone]
+pheRemaining = phecodeDataKeep[!(phecode %in% phecodesDone)]
+
+a = sdn[grepl('urate', disease_trait, ignore.case = TRUE)]
+          # !grepl('paediatric', disease_trait, ignore.case = TRUE)]
+
+a = sdn[tolower(disease_trait) %in% c('urate levels', 'gout')]
+
+a1 = a[!(study_accession %in% c('GCST000130')),
+       .(phecode = '274.1', study_accession)]
+write_csv(a1, 'catalog_study_now.csv')
+
+# a2 = phecodeData[phecode %in% pheDone]
+# a3 = phecodeDataKeep[grepl('breast', phenotype, ignore.case = TRUE)]

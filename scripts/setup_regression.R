@@ -242,7 +242,7 @@ loadPheno = function(procDir, p, gridData, phecodeSubsetPath) {
 
 createLogFile = function(resultDir, fileSuffix, nPhecodes, nChunks = NULL) {
   txt = c('datetime', 'phecode', 'phecodeIdx')
-  d = data.table(datetimeStarted = Sys.time(), nPhecodes = nPhecodes)
+  d = data.table(datetimeStarted = as.character(Sys.time()), nPhecodes = nPhecodes)
   if (!is.null(nChunks)) {
     txt = c(txt, 'chunkIdx')
     d$nChunks = nChunks}
@@ -261,12 +261,12 @@ createLogFile = function(resultDir, fileSuffix, nPhecodes, nChunks = NULL) {
 appendLogFile = function(logFile, gwasMetadata, phecodeIdx, chunkIdx = NULL) {
   if (is.null(logFile$nChunks)) {
     # completed an unchunked phecode
-    d = data.table(datetime = Sys.time(),
+    d = data.table(datetime = as.character(Sys.time()),
                    phecode = gwasMetadata$phecode[phecodeIdx],
                    phecodeIdx = phecodeIdx)
   } else {
     # loaded genotypes for a chunk or completed a chunk for a phecode
-    d = data.table(datetime = Sys.time(),
+    d = data.table(datetime = as.character(Sys.time()),
                    phecode = ifelse(phecodeIdx == 0, NA,
                                     gwasMetadata$phecode[phecodeIdx]),
                    phecodeIdx = phecodeIdx,
