@@ -12,8 +12,7 @@ plotDir = file.path(resultDir, 'plots')
 dir.create(plotDir, recursive = TRUE)
 
 registerDoParallel()
-# maxPvalLoad = 1
-maxPvalLoad = 1e-3
+maxPvalLoad = 1e-4
 
 ############################################################
 
@@ -28,14 +27,12 @@ setDT(mapData)
 
 gwasDataTmp = loadGwas(resultDir, gwasMetadata, maxPvalLoad)
 gwasData = gwasDataTmp[[1]]
-gwasLambdaData = gwasDataTmp[[2]]
 
 gwasData[, pval := ifelse(is.na(pval), 1, pval)]
 gwasData = mergeAll(gwasData, phecodeData, gwasMetadata, mapData)
 
 rm(gwasDataTmp)
 
-############################################################
 ############################################################
 
 catalogAssocData = read_tsv(file.path(procDir, 'catalog_assoc_data.tsv'),
@@ -58,11 +55,13 @@ a1 = foreach(negLogPvalNow = negLogPvalCutoffs, .combine = rbind) %dopar% {
   aNow}
 
 a1[, method := ifelse(method == 'cox', 'Cox', method)]
+a1[, fracDetected := nDetected / nAssoc]
 
 p1 = ggplot(a1) +
-  geom_line(aes(x = negLogPvalCutoff, y = nDetected / nAssoc, color = method), size = 1) +
-  labs(x = expression(-log[10](p)~cutoff), y = 'Sensitivity for\nknown associations',
-       color = 'Method') +
+  geom_line(aes(x = negLogPvalCutoff, y = fracDetected, color = method),
+            size = 0.75) +
+  labs(x = expression(-log[10](p)~cutoff),
+       y = 'Sensitivity for\nknown associations', color = 'Method') +
   scale_x_continuous(limits = c(5, 9)) +
   scale_y_continuous(limits = c(0.02, 0.055)) +
   scale_color_brewer(type = 'qual', palette = 'Set2')
@@ -74,12 +73,15 @@ a2 = a1[, .(relDiffDetected = (nDetected[method == 'Cox'] -
         by = negLogPvalCutoff]
 
 p2 = ggplot(a2) +
-  geom_line(aes(x = negLogPvalCutoff, y = relDiffDetected)) +
+  geom_line(aes(x = negLogPvalCutoff, y = relDiffDetected),
+            color = 'darkgray', size = 0.75) +
+  geom_smooth(aes(x = negLogPvalCutoff, y = relDiffDetected),
+              span = 0.5, se = FALSE, color = 'black', size = 0.75) +
   labs(x = expression(-log[10](p)~cutoff),
-       y = 'Relative increase in sensitivity\nfrom logistic to Cox') +
+       y = 'Relative change in sensitivity\nfrom logistic to Cox') +
   scale_x_continuous(limits = c(5, 9)) +
   scale_y_continuous(limits = c(0, 0.2))
 
 p = plot_grid(p1, p2, ncol = 1, align = 'v', axis = 'lr')
-ggsave(file.path(plotDir, 'catalog_sensitivity.pdf'),
-       plot = p, width = 5, height = 6)
+ggsave(file.path(plotDir, 'summary_catalog_sensitivity.pdf'),
+       plot = p, width = 4, height = 5)

@@ -2,6 +2,7 @@ library('BEDMatrix')
 library('cowplot')
 library('data.table')
 library('doParallel')
+library('ggrepel')
 library('readr')
 library('qqman')
 library('survival')
@@ -541,17 +542,24 @@ loadGwas = function(resultDir, gwasMetadata, maxPvalLoad) {
                            gwasMetadata$logisticFilename[ii])
     d[, phecode := gwasMetadata$phecode[ii]]
 
+    dNa = d[, .(nNa = sum(is.na(pval))), by = .(phecode, method)]
+
+    dCorPre = dcast(d, phecode + snp ~ method, value.var = 'pval')
+    dCor = dCorPre[, .(r = cor(logistic, cox, use = 'na.or.complete')), by = phecode]
+
     dLambda = d[, .(lambdaMed = median((beta / se)^2, na.rm = TRUE) /
                       qchisq(0.5, 1)), by = .(phecode, method)]
 
     d = d[, if (any(!is.na(pval)) && mean(log(pval), na.rm = TRUE) <= log(maxPvalLoad)) .SD,
           by = snp]
-    list(d, dLambda)}
+    list(d, dNa, dCor, dLambda)}
 
-  gd = rbindlist(gdList[,1], use.names = TRUE)
-  gdLambda = rbindlist(gdList[,2], use.names = TRUE)
+  gd = rbindlist(gdList[, 1], use.names = TRUE)
+  gdNa = rbindlist(gdList[, 2], use.names = TRUE)
+  gdCor = rbindlist(gdList[, 3], use.names = TRUE)
+  gdLambda = rbindlist(gdList[, 4], use.names = TRUE)
   gdLambda = dcast(gdLambda, phecode ~ method, value.var = 'lambdaMed')
-  return(list(gd, gdLambda))}
+  return(list(gd, gdNa, gdCor, gdLambda))}
 
 
 mergeAll = function(gwasData, phecodeData, gwasMetadata, mapData) {
@@ -602,16 +610,16 @@ plotEffectSize = function(gwasData, lnCol, lnSz, ptShp, ptSz, ptAlph, md = TRUE)
   if (md) {
     p = ggplot(d) +
       geom_hline(yintercept = 0, color = lnCol, size = lnSz) +
-      # geom_point(aes(x = (logistic - cox)/2, y = cox + logistic),
-      geom_point(aes(x = (logistic + cox) / 2, y = logistic - cox),
+      geom_point(aes(x = (cox + logistic) / 2, y = cox - logistic),
                  shape = ptShp, size = ptSz, alpha = ptAlph) +
-      labs(title = 'Effect size', x = 'Mean of hazard ratio and odds ratio',
-           y = 'Odds ratio - hazard ratio')
+      labs(x = '(hazard ratio + odds ratio) / 2', y = 'hazard ratio - odds ratio')
+      # labs(title = 'Effect size', x = 'Mean of hazard ratio and odds ratio',
+      #      y = 'Odds ratio - hazard ratio')
   } else {
     pTmp = ggplot(d) +
       geom_abline(slope = 1, intercept = 0, color = lnCol, size = lnSz) +
       geom_point(aes(x = cox, y = logistic), shape = ptShp, size = ptSz, alpha = ptAlph) +
-      labs(title = 'Effect size', x = 'log2(hazard ratio)', y = 'log2(odds ratio)')
+      labs(x = 'log2(hazard ratio)', y = 'log2(odds ratio)')
 
     paramList = list(col = 'white', fill = 'darkgray', size = 0.25)
     p = ggExtra::ggMarginal(pTmp, type = 'histogram', binwidth = 0.15, boundary = 0,
@@ -625,18 +633,19 @@ plotPval = function(gwasData, lnCol, lnSz, ptShp, ptSz, ptAlph) {
     geom_hline(yintercept = 0, color = lnCol, size = lnSz) +
     geom_point(aes(x = (logistic + cox) / 2, y = cox - logistic),
                shape = ptShp, size = ptSz, alpha = ptAlph) +
-    geom_smooth(aes(x = (logistic + cox) / 2, y = cox - logistic),
-                size = 0.5, method = 'loess', span = 0.5) +
-    labs(title = '-log10(p)')
+    # geom_smooth(aes(x = (logistic + cox) / 2, y = cox - logistic),
+    #             size = 0.5, method = 'loess', span = 0.5) +
+    labs(x = expression((-log[10](p[Cox]) - log[10](p[logistic])) / 2),
+         y = expression(-log[10](p[Cox]) + log[10](p[logistic])))
   return(list(d, p))}
 
 
-plotSe = function(gwasData, binwidth = 0.0005, limits = c(-0.015, 0.005)) {
+plotSe = function(gwasData, binwidth = 0.0005, limits = c(-0.007, 0.001)) {
   d = dcast(gwasData, phecode + snp ~ method, value.var = 'se')
   p = ggplot(d) +
     geom_histogram(aes(x = cox - logistic), binwidth = binwidth, boundary = 0,
                    size = 0.25, fill = 'darkgray', color = 'white') +
-    labs(title = 'Standard error') +
+    labs(x = expression(SE[Cox] - SE[logistic]), y = 'Number of associations') +
     scale_x_continuous(limits = limits)
   return(list(d, p))}
 
@@ -647,7 +656,11 @@ plotLambda = function(gwasLambdaData, lnCol, lnSz, ptShp, ptSz, ptAlph,
     geom_hline(yintercept = 0, color = lnCol, size = lnSz) +
     geom_point(aes(x = (logistic + cox) / 2, y = cox - logistic),
                shape = ptShp, size = ptSz, alpha = ptAlph) +
-    labs(title = 'Lambda median') +
+    geom_text_repel(aes(x = (logistic + cox) / 2, y = cox - logistic,
+                         label = phecode), size = 3,
+                     data = gwasLambdaData[cox - logistic >= 0.05]) +
+    labs(x = expression((lambda[med*','*Cox] + lambda[med*','*logistic]) / 2),
+         y = expression(lambda[med*','*Cox] - lambda[med*','*logistic])) +
     scale_x_continuous(limits = xlims) +
     scale_y_continuous(limits = ylims)
   return(p)}

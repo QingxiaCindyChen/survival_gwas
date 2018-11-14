@@ -12,8 +12,7 @@ plotDir = file.path(resultDir, 'plots')
 dir.create(plotDir, recursive = TRUE)
 
 registerDoParallel()
-# maxPvalLoad = 1
-maxPvalLoad = 1e-2
+maxPvalLoad = 1e-3
 
 ############################################################
 
@@ -28,7 +27,9 @@ setDT(mapData)
 
 gwasDataTmp = loadGwas(resultDir, gwasMetadata, maxPvalLoad)
 gwasData = gwasDataTmp[[1]]
-gwasLambdaData = gwasDataTmp[[2]]
+gwasNaData = gwasDataTmp[[2]]
+gwasCorData = gwasDataTmp[[3]]
+gwasLambdaData = gwasDataTmp[[4]]
 
 gwasData[, pval := ifelse(is.na(pval), 1, pval)]
 gwasData = mergeAll(gwasData, phecodeData, gwasMetadata, mapData)
@@ -37,8 +38,8 @@ rm(gwasDataTmp)
 
 ############################################################
 
-gwasData[, plotManhattan(.BY, .SD, plotDir, cex = 0.5),
-         by = .(phecode, phecodeStr, phenotype, method)]
+# gwasData[, plotManhattan(.BY, .SD, plotDir, cex = 0.5),
+#          by = .(phecode, phecodeStr, phenotype, method)]
 
 # gwasData[, plotQq(.BY, .SD, plotDir),
 #          by = .(phecode, phecodeStr, phenotype, method)]
@@ -46,7 +47,6 @@ gwasData[, plotManhattan(.BY, .SD, plotDir, cex = 0.5),
 ############################################################
 
 maxPval = 1e-5
-# maxPval = 1
 gwasDataSig = filterForSignificance(gwasData, maxPval)
 
 ############################################################
@@ -57,28 +57,40 @@ ptAlph = 0.2
 lnSz = 0.5
 lnCol = 'gray'
 
-# hazard ratios are extremely similar to odds ratios
+# correlations of p-values
+pCor = ggplot(gwasCorData) +
+  stat_ecdf(aes(x = r), pad = FALSE) +
+  labs(x = expression(cor(p[Cox]*', '*p[logistic])),
+       y = 'Cumulative fraction\nof phenotypes')
+
+# genomic inflation factors
+pLambda = plotLambda(gwasLambdaData, lnCol, lnSz, ptShp, 1, 0.5)
+
+# p-values
+resultTmp = plotPval(gwasDataSig, lnCol, lnSz, ptShp, ptSz, ptAlph)
+gwasDataPval = resultTmp[[1]]
+pPval = resultTmp[[2]]
+
+pPvalZoom = pPval +
+  scale_x_continuous(limits = c(5, 20)) +
+  scale_y_continuous(limits = c(-5, 6))
+
+# standard errors
+resultTmp = plotSe(gwasDataSig)
+gwasDataSe = resultTmp[[1]]
+pSe = resultTmp[[2]]
+
+# effect sizes
 resultTmp = plotEffectSize(gwasDataSig, lnCol, lnSz, ptShp, ptSz, ptAlph)
 gwasDataEffect = resultTmp[[1]]
 pEffect = resultTmp[[2]]
 
 cor(gwasDataEffect$logistic, gwasDataEffect$cox, use = 'na.or.complete')
 
-# p-values at the low end are smaller
-resultTmp = plotPval(gwasDataSig, lnCol, lnSz, ptShp, ptSz, ptAlph)
-gwasDataPval = resultTmp[[1]]
-pPval = resultTmp[[2]]
-
-# standard errors are slightly lower for cox
-resultTmp = plotSe(gwasDataSig)
-gwasDataSe = resultTmp[[1]]
-pSe = resultTmp[[2]]
-
-# genomic inflation factors are similar or slightly higher
-pLambda = plotLambda(gwasLambdaData, lnCol, lnSz, ptShp, ptSz, ptAlph)
-
-p = plot_grid(pEffect, pPval, pSe, pLambda, nrow = 2, align = 'hv', axis = 'tb')
-ggsave(file.path(plotDir, 'summary.pdf'), plot = p, width = 6, height = 5.75)
+p = plot_grid(pCor, pLambda, pEffect, pPval, pPvalZoom, pSe,
+              labels = 'AUTO', ncol = 2, align = 'hv', axis = 'tb')
+ggsave(file.path(plotDir, 'summary_stats.pdf'),
+       plot = p, width = 6, height = 8)
 
 ############################################################
 
@@ -96,11 +108,4 @@ ggsave(file.path(plotDir, 'summary.pdf'), plot = p, width = 6, height = 5.75)
 # p = ggplot(a) +
 #   geom_point(aes(x = logRatio, y = cox - logistic), shape = ptShp, size = ptSz, alpha = ptAlph) +
 #   geom_smooth(aes(x = logRatio, y = cox - logistic), size = 0.5, method = 'loess', span = 0.5)
-# print(p)
-#
-#
-# a1 = dcast(gwasData, phecode + snp ~ method, value.var = 'pval')
-# a2 = a1[, .(r = cor(-log10(logistic), -log10(cox))), by = phecode]
-# p = ggplot(a2) +
-#   stat_ecdf(aes(x = r), pad = FALSE)
 # print(p)
