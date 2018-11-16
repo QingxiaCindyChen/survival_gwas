@@ -73,15 +73,17 @@ a2 = a1[, .(relDiffDetected = (nDetected[method == 'Cox'] -
         by = negLogPvalCutoff]
 
 p2 = ggplot(a2) +
-  geom_line(aes(x = negLogPvalCutoff, y = relDiffDetected),
-            color = 'darkgray', size = 0.75) +
-  geom_smooth(aes(x = negLogPvalCutoff, y = relDiffDetected),
-              span = 0.5, se = FALSE, color = 'black', size = 0.75) +
+  geom_line(aes(x = negLogPvalCutoff, y = relDiffDetected, color = 'raw'),
+            size = 0.75) +
+  geom_smooth(aes(x = negLogPvalCutoff, y = relDiffDetected, color = 'smoothed'),
+              span = 0.5, se = FALSE, size = 0.75,
+              show.legend = TRUE) +
   labs(x = expression(-log[10](p)~cutoff),
-       y = 'Relative change in sensitivity\nfrom logistic to Cox') +
+       y = 'Rel. change in sensitivity\nfrom logistic to Cox') +
   scale_x_continuous(limits = c(5, 9)) +
-  scale_y_continuous(limits = c(0, 0.2))
+  scale_y_continuous(limits = c(0, 0.2)) +
+  scale_color_manual(name = 'Type', values = c('darkgray', 'black'))
 
-p = plot_grid(p1, p2, ncol = 1, align = 'v', axis = 'lr')
+p = plot_grid(p1, p2, ncol = 1, labels = 'AUTO', align = 'v', axis = 'lr')
 ggsave(file.path(plotDir, 'summary_catalog_sensitivity.pdf'),
-       plot = p, width = 4, height = 5)
+       plot = p, width = 4.25, height = 5.1)
