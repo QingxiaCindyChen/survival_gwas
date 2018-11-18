@@ -45,6 +45,8 @@ a = merge(gwasData[, .(phecode, snp, method, pval)],
           catalogAssocData[, .(phecode, snp, ldBlock)],
           by = c('phecode', 'snp'))
 
+############################################################
+
 negLogPvalCutoffs = seq(5, 30, 0.02)
 
 a1 = foreach(negLogPvalNow = negLogPvalCutoffs, .combine = rbind) %dopar% {

@@ -49,8 +49,7 @@ rm(phenoTmp)
 
 ############################################################
 
-gwasMetadata = makeGwasMetadata(phecodeData, phenoData, phenoSummary,
-                                params$gwas)
+gwasMetadata = makeGwasMetadata(phecodeData, phenoData, phenoSummary, params$gwas)
 
 if (params$gwas$cox || params$gwas$logistic) {
   phenoList = prepPhenoDataForGwas(resultDir, gwasMetadata, phenoData,
@@ -69,9 +68,8 @@ if (params$gwas$cox) {
 
   gwasChunkMetadata = foreach(chunkIdxNow = chunkIdxUnique, .combine = rbind) %dopar% {
     runGwasPhewasChunkCox(list(chunkIdx = chunkIdxNow),
-                          snpData[chunkIdx == chunkIdxNow], genoData,
-                          gwasMetadata, phenoFilenames, params, resultDir,
-                          coxLog)}
+                          snpData[chunkIdx == chunkIdxNow], genoData, gwasMetadata,
+                          phenoFilenames, params, resultDir, coxLog)}
 
   gatherGwasChunks(gwasChunkMetadata, gwasMetadata, resultDir)
   compressFiles(file.path(resultDir, gwasMetadata$coxFilename))

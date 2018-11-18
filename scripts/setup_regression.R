@@ -6,6 +6,7 @@ library('ggrepel')
 library('readr')
 library('qqman')
 library('survival')
+library('viridis')
 library('yaml')
 
 procParent = 'processed'
@@ -574,12 +575,41 @@ mergeAll = function(gwasData, phecodeData, gwasMetadata, mapData) {
   return(gwasData)}
 
 
-plotManhattan = function(byList, dtSubset, plotDir, main = NULL, ...) {
-  filename = sprintf('%s_%s_man.pdf', byList$phecodeStr, byList$method)
-  pdf(file.path(plotDir, filename), width = 6, height = 4)
-  manhattan(dtSubset, p = 'pval', snp = 'snp', chr = 'chr', bp = 'pos',
-            main = main, ...)
-  dev.off()}
+plotManhattan = function(gwasData, mapData, plotDir, sz = 0.25, save = TRUE,
+                         ...) {
+  mapData = mapData[order(chr, pos)]
+  mapData[, posIdx := .I]
+  mapData[, chrMod := (chr + 1) %% 2]
+  tickData = mapData[(chr %% 2) == 1, .SD[round(.N / 2)], by = chr]
+
+  gwasData = merge(gwasData, mapData, by = c('chr', 'pos'))
+  gwasData[, method := ifelse(method == 'cox', 'Cox', method)]
+
+  phecodes = sort(unique(gwasData$phecode))
+  pList = foreach(phecodeNow = phecodes) %dopar% {
+    gdNow = gwasData[phecode == phecodeNow]
+    phenoLabel = sprintf('%s (%s)', gdNow$phenotype[1], gdNow$phecode[1])
+
+    p = ggplot(gdNow) +
+      facet_grid(method ~ .) +
+      geom_point(aes(x = posIdx, y = -log10(pval), color = factor(chrMod)),
+                 size = sz) +
+      geom_hline(yintercept = -log10(5e-8), color = '#33a02c') +
+      geom_hline(yintercept = -log10(1e-5), color = '#b2df8a') +
+      labs(title = phenoLabel, x = 'Chromosome', y = expression(-log[10](p))) +
+      scale_x_continuous(breaks = tickData$posIdx, labels = tickData$chr) +
+      scale_color_brewer(palette = 'Paired') +
+      guides(color = FALSE) +
+      theme(panel.grid.major = element_blank(),
+            axis.text.x = element_text(size = 7))
+
+    if (save) {
+      ggsave(file.path(plotDir, sprintf('%s_man.pdf', gdNow$phecodeStr[1])),
+             plot = p, ...)}
+    p}
+
+  names(pList) = phecodes
+  return(pList)}
 
 
 plotQq = function(byList, dtSubset, plotDir, main = NULL) {
@@ -587,14 +617,6 @@ plotQq = function(byList, dtSubset, plotDir, main = NULL) {
   pdf(file.path(plotDir, filename), width = 6, height = 4)
   qq(dtSubset$pval, main = main)
   dev.off()}
-
-
-plotManhattanAndQq = function(byList, dtSubset, plotDir, ...) {
-  main = sprintf('%s (%s), %s regression', byList$phenotype,
-                 byList$phecode, byList$method)
-  dt = dtSubset[!is.na(pval)]
-  plotManhattan(byList, dt, plotDir, main, ...)
-  plotQq(byList, dt, plotDir, main)}
 
 
 filterForSignificance = function(gwasData, maxPval) {
@@ -612,9 +634,8 @@ plotEffectSize = function(gwasData, lnCol, lnSz, ptShp, ptSz, ptAlph, md = TRUE)
       geom_hline(yintercept = 0, color = lnCol, size = lnSz) +
       geom_point(aes(x = (cox + logistic) / 2, y = cox - logistic),
                  shape = ptShp, size = ptSz, alpha = ptAlph) +
-      labs(x = '(hazard ratio + odds ratio) / 2', y = 'hazard ratio - odds ratio')
-      # labs(title = 'Effect size', x = 'Mean of hazard ratio and odds ratio',
-      #      y = 'Odds ratio - hazard ratio')
+      labs(x = expression((log[2](HR) + log[2](OR)) / 2),
+           y = expression(log[2](HR) - log[2](OR)))
   } else {
     pTmp = ggplot(d) +
       geom_abline(slope = 1, intercept = 0, color = lnCol, size = lnSz) +

@@ -38,14 +38,6 @@ rm(gwasDataTmp)
 
 ############################################################
 
-# gwasData[, plotManhattan(.BY, .SD, plotDir, cex = 0.5),
-#          by = .(phecode, phecodeStr, phenotype, method)]
-
-# gwasData[, plotQq(.BY, .SD, plotDir),
-#          by = .(phecode, phecodeStr, phenotype, method)]
-
-############################################################
-
 maxPval = 1e-5
 gwasDataSig = filterForSignificance(gwasData, maxPval)
 
@@ -94,54 +86,12 @@ ggsave(file.path(plotDir, 'summary_stats.pdf'),
 
 ############################################################
 
-sz = 0.25
+plotManhattan(gwasData, mapData, plotDir, width = 4, height = 4)
 
-mapDataPlot = mapData[order(chr, pos)]
-mapDataPlot[, posIdx := .I]
-mapDataPlot[, chrMod := (chr + 1) %% 2]
-mapDataTicks = mapDataPlot[(chr %% 2) == 1, .SD[round(.N / 2)], by = chr]
+pList = plotManhattan(gwasData[phecode %in% c('185', '274.1')],
+                      mapData, plotDir, save = FALSE)
 
-phecodeNow = '185'
-phenoLabel = phecodeData[phecode == phecodeNow,
-                         .(label = sprintf('%s (%s)', phenotype, phecode))][[1]]
-gdNow = gwasData[phecode == phecodeNow]
-gdNow[, method := ifelse(method == 'cox', 'Cox', method)]
-gdNow = merge(gdNow, mapDataPlot, by = c('chr', 'pos'))
-
-p1 = ggplot(gdNow) +
-  facet_grid(method ~ .) +
-  geom_point(aes(x = posIdx, y = -log10(pval), color = factor(chrMod)),
-             size = sz) +
-  geom_hline(yintercept = -log10(5e-8), color = '#33a02c') +
-  geom_hline(yintercept = -log10(1e-5), color = '#b2df8a') +
-  labs(title = phenoLabel, x = 'Chromosome', y = expression(-log[10](p))) +
-  scale_x_continuous(breaks = mapDataTicks$posIdx, labels = mapDataTicks$chr) +
-  scale_color_brewer(palette = 'Paired') +
-  guides(color = FALSE) +
-  theme(panel.grid.major = element_blank(), axis.text.x = element_text(size = 7))
-
-
-phecodeNow = '274.1'
-phenoLabel = phecodeData[phecode == phecodeNow,
-                         .(label = sprintf('%s (%s)', phenotype, phecode))][[1]]
-gdNow = gwasData[phecode == phecodeNow]
-gdNow[, method := ifelse(method == 'cox', 'Cox', method)]
-gdNow = merge(gdNow, mapDataPlot, by = c('chr', 'pos'))
-
-p2 = ggplot(gdNow) +
-  facet_grid(method ~ .) +
-  geom_point(aes(x = posIdx, y = -log10(pval), color = factor(chrMod)),
-             size = sz) +
-  geom_hline(yintercept = -log10(5e-8), color = '#33a02c') +
-  geom_hline(yintercept = -log10(1e-5), color = '#b2df8a') +
-  labs(title = phenoLabel, x = 'Chromosome', y = expression(-log[10](p))) +
-  scale_x_continuous(breaks = mapDataTicks$posIdx, labels = mapDataTicks$chr) +
-  scale_color_brewer(palette = 'Paired') +
-  guides(color = FALSE) +
-  theme(panel.grid.major = element_blank(), axis.text.x = element_text(size = 7))
-
-
-p = plot_grid(p1, p2, nrow = 1, labels = 'AUTO')
+p = plot_grid(plotlist = pList, nrow = 1, labels = 'AUTO')
 ggsave(file.path(plotDir, 'example_manhattan.pdf'),
        plot = p, width = 8, height = 4.25)
 
