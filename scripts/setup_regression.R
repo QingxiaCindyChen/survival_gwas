@@ -4,7 +4,6 @@ library('data.table')
 library('doParallel')
 library('ggrepel')
 library('readr')
-library('qqman')
 library('survival')
 library('viridis')
 library('yaml')
@@ -200,7 +199,7 @@ loadGrid = function(procDir, plinkDataPathPrefix, minRecLen, paramsGwas, paramDi
 
   if (!is.null(paramsGwas$covarFile)) {
     warnOld = getOption('warn')
-    options(warn = -1) # suppress harmless warning about missing colunm name
+    options(warn = -1) # suppress harmless warning about missing column name
     covarData = read_delim(file.path(paramDir, paramsGwas$covarFile),
                            delim = paramsGwas$covarFileDelim, col_types = cols())
     options(warn = warnOld)
@@ -685,3 +684,23 @@ plotLambda = function(gwasLambdaData, lnCol, lnSz, ptShp, ptSz, ptAlph,
     scale_x_continuous(limits = xlims) +
     scale_y_continuous(limits = ylims)
   return(p)}
+
+
+getSurvfit = function(phecodeNow, snpNow, gwasMetadata, phenoData, gridData,
+                      whichSex, paramsPheno, genoData) {
+  whichSex = gwasMetadata[phecode == phecodeNow, whichSex]
+  phenoDataNow = phenoData[phecode == phecodeNow, .(grid, age)]
+  inputBase = makeInput(phenoDataNow, gridData, whichSex,
+                        paramsPheno$minEvents, paramsPheno$ageBuffer)
+  inputNow = copy(inputBase)
+  inputNow[, genotype := genoData[grid, snpNow]]
+  sf = survfit(Surv(age1, age2, status) ~ genotype, data = inputNow)
+  return(sf)}
+
+
+getSurvfitDt = function(sf) {
+  d = data.table(age = sf$time, surv = sf$surv,
+                 strata = names(sf$strata)[rep(1:length(sf$strata), sf$strata)])
+  dStrata = data.table(strata = names(sf$strata), genotype = 0:2)
+  d = merge(d, dStrata, by = 'strata')
+  return(d)}
