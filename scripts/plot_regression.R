@@ -25,6 +25,14 @@ setDT(mapData)
 
 ############################################################
 
+gwasMetadataNice = merge(gwasMetadata[, .(phecode, whichSex, nCases)],
+                         phecodeData[, .(phecode, phenotype)],
+                         by = 'phecode')
+setcolorder(gwasMetadataNice, 'phenotype')
+write_csv(gwasMetadataNice, file.path(resultDir, 'gwas_metadata_nice.csv'))
+
+############################################################
+
 gwasDataTmp = loadGwas(resultDir, gwasMetadata, maxPvalLoad)
 gwasData = gwasDataTmp[[1]]
 gwasNaData = gwasDataTmp[[2]]
