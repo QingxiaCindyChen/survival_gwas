@@ -17,7 +17,7 @@ maxPvalLoad = 1e-2
 ############################################################
 
 gwasMetadata = read_tsv(file.path(resultDir, 'gwas_metadata.tsv'),
-                        col_types = 'cccccdc')
+                        col_types = 'cccccdddc')
 setDT(gwasMetadata)
 
 mapData = read_csv(file.path(procDir, 'map_data.csv.gz'), col_types = 'iccicc')
@@ -25,7 +25,7 @@ setDT(mapData)
 
 ############################################################
 
-gwasMetadataNice = merge(gwasMetadata[, .(phecode, whichSex, nCases)],
+gwasMetadataNice = merge(gwasMetadata[, .(phecode, whichSex, nCases, nControls)],
                          phecodeData[, .(phecode, phenotype)],
                          by = 'phecode')
 setcolorder(gwasMetadataNice, 'phenotype')

@@ -50,6 +50,7 @@ rm(phenoTmp)
 ############################################################
 
 gwasMetadata = makeGwasMetadata(phecodeData, phenoData, phenoSummary, params$gwas)
+gwasMetadata[, nControls := nrow(gridData) - nCases - nSinglets] # since minCases > 1
 
 if (params$gwas$cox || params$gwas$logistic) {
   phenoList = prepPhenoDataForGwas(resultDir, gwasMetadata, phenoData,

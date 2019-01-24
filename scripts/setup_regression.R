@@ -233,7 +233,8 @@ loadPheno = function(procDir, p, gridData, phecodeSubsetPath) {
                           (whichSex == 'female' & sex == 2)]
 
   phenoSummary = phenoData[, .N, by = .(grid, phecode)]
-  phenoSummary = phenoSummary[, .(nCases = sum(N >= p$minEvents)), by = phecode]
+  phenoSummary = phenoSummary[, .(nCases = sum(N >= p$minEvents),
+                                  nSinglets = sum(N == 1)), by = phecode]
   phenoData = merge(phenoData, phenoSummary[nCases >= p$minCases], by = 'phecode')
   phenoData = phenoData[, .(grid, phecode, age)]
   return(list(phenoData, phenoSummary))}
@@ -565,7 +566,7 @@ loadGwas = function(resultDir, gwasMetadata, maxPvalLoad) {
 mergeAll = function(gwasData, phecodeData, gwasMetadata, mapData) {
   gwasData = merge(gwasData, phecodeData[, .(phecode, phenotype, group)],
                    by = 'phecode')
-  gwasData = merge(gwasData, gwasMetadata[, .(phecode, phecodeStr, nCases)],
+  gwasData = merge(gwasData, gwasMetadata[, .(phecode, phecodeStr, nCases, nSinglets)],
                    by = 'phecode')
   gwasData = merge(gwasData, mapData[, .(snp, chr, pos)], by = 'snp')
   # genoSummary = setDT(genoData$genoSummary, keep.rownames = TRUE)

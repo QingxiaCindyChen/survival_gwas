@@ -17,7 +17,7 @@ maxPvalLoad = 1e-4
 ############################################################
 
 gwasMetadata = read_tsv(file.path(resultDir, 'gwas_metadata.tsv'),
-                        col_types = 'cccccdc')
+                        col_types = 'cccccdddc')
 setDT(gwasMetadata)
 
 mapData = read_csv(file.path(procDir, 'map_data.csv.gz'), col_types = 'iccicc')
@@ -45,6 +45,12 @@ a = merge(gwasData[, .(phecode, snp, method, pval)],
           catalogAssocData[, .(phecode, snp, ldBlock)],
           by = c('phecode', 'snp'))
 
+############################################################
+############################################################
+# how to deal with snps that are NA in logistic: don't convert them to 1
+# pvalConsecutive := ifelse(pvalLogistic <= 1e-4, pvalCox, pvalLogistic)
+
+############################################################
 ############################################################
 
 negLogPvalCutoffs = seq(5, 30, 0.02)
