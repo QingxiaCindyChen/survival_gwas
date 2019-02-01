@@ -1,0 +1,45 @@
+datasetName: 'mega'
+gridTable: 'LB_MEGA3'
+gridTableEuro: false # Lisa already filtered for European ancestry, so LB_MEGA3 has no euro column
+snpSubsetFile: null
+phecodeSubsetFile: 'phecodes_test.tsv'
+
+slurm:
+  email: 'jakejhughey@gmail.com'
+  cpusPerTask: 12
+  doparFactor: 3
+  mem: '2G'
+  time: '0:15:00' # d-hh:mm:ss
+  nTasks: 1 # for job array
+  lmodCollection: 'R343'
+
+geno: # Lisa already filtered stringently
+  qc: false
+  maxSnpsPerChunk: 2000
+  minMaf: 0 # 0.01
+  minCallRate: 0 # 0.95
+  minHwePval: 0 # 0.001
+  aimsFile: null
+
+pheno:
+  minRecLen: 0 # years
+  minEvents: 2 # to be defined as a case; controls have zero events
+  maxAgeAtEvent: 90 # years; dates in the SD after 90 years old are untrustworthy
+  minCases: 100 # to analyze the phecode
+  ageBuffer: 1 # years; for calculating age1 in cox regression
+
+gwas:
+  cox: false
+  logistic: true
+  nPC: 4 # for both cox and logistic regression
+  splineDf: 1 # for last_age in logistic regression (splines::ns)
+  covarFile: null # in addition to sex and age
+  covarFileDelim: ' '
+  covarsFromFile: null
+
+plink:
+  dataPathPrefix: '/home/hughejj1/data/genotype_data/mega/MEGA3_forPheWAS_01_Ws' # works on emerge and accre
+  execPath: '/home/hughejj1/data/plink2_20180830/plink2' # works on emerge and accre
+  memSize: 768 # MiB
+  maxVif: 1e5 # reduce plink's tendency to output NA due to multicollinearity of spline bases
+  maxCorr: 0.99999
