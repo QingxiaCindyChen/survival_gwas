@@ -639,12 +639,25 @@ plotEffectSize = function(gwasData, lnCol, lnSz, ptShp, ptSz, ptAlph, md = TRUE)
   } else {
     pTmp = ggplot(d) +
       geom_abline(slope = 1, intercept = 0, color = lnCol, size = lnSz) +
-      geom_point(aes(x = cox, y = logistic), shape = ptShp, size = ptSz, alpha = ptAlph) +
-      labs(x = 'log2(hazard ratio)', y = 'log2(odds ratio)')
+      geom_point(aes(x = logistic, y = cox), shape = ptShp, size = ptSz, alpha = ptAlph) +
+      labs(x = expression(log[2](OR)), y = expression(log[2](HR)))
 
-    paramList = list(col = 'white', fill = 'darkgray', size = 0.25)
-    p = ggExtra::ggMarginal(pTmp, type = 'histogram', binwidth = 0.15, boundary = 0,
-                            xparams = paramList, yparams = paramList)}
+    gx = axis_canvas(pTmp, axis = 'x') +
+      geom_histogram(aes(x = logistic), fill = 'darkgray', color = 'white',
+                     size = 0.25, binwidth = 0.15, boundary = 0, data = d)
+
+    gy = axis_canvas(pTmp, axis = 'y', coord_flip = TRUE) +
+      geom_histogram(aes(x = cox), fill = 'darkgray', color = 'white',
+                     size = 0.25, binwidth = 0.15, boundary = 0, data = d) +
+      coord_flip()
+
+    p = insert_xaxis_grob(pTmp, gx, grid::unit(0.4, 'in'), position = 'top')
+    p = insert_yaxis_grob(p, gy, grid::unit(0.4, 'in'), position = 'right')
+  }
+
+    # paramList = list(col = 'white', fill = 'darkgray', size = 0.25)
+    # p = ggExtra::ggMarginal(pTmp, type = 'histogram', binwidth = 0.15, boundary = 0,
+    #                         xparams = paramList, yparams = paramList)}
   return(list(d, p))}
 
 

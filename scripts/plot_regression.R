@@ -81,7 +81,8 @@ gwasDataSe = resultTmp[[1]]
 pSe = resultTmp[[2]]
 
 # effect sizes
-resultTmp = plotEffectSize(gwasDataSig, lnCol, lnSz, ptShp, ptSz, ptAlph)
+resultTmp = plotEffectSize(gwasDataSig, lnCol, lnSz, ptShp, ptSz, ptAlph,
+                           md = FALSE)
 gwasDataEffect = resultTmp[[1]]
 pEffect = resultTmp[[2]]
 
@@ -96,12 +97,12 @@ ggsave(file.path(plotDir, 'summary_stats.pdf'),
 
 plotManhattan(gwasData, mapData, plotDir, width = 4, height = 4)
 
-pList = plotManhattan(gwasData[phecode %in% c('185', '274.1')],
+pList = plotManhattan(gwasData[phecode %in% c('165.1', '185', '250.2', '411.2')],
                       mapData, plotDir, save = FALSE)
 
-p = plot_grid(plotlist = pList, nrow = 1, labels = 'AUTO')
+p = plot_grid(plotlist = pList, nrow = 2, labels = 'AUTO')
 ggsave(file.path(plotDir, 'example_manhattan.pdf'),
-       plot = p, width = 8, height = 4.25)
+       plot = p, width = 8, height = 8.25)
 
 ############################################################
 
