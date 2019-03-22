@@ -15,10 +15,8 @@ phecodeData = read_csv(file.path(procParent, 'phecode_data.csv.gz'),
                        col_types = 'ccc??????')
 setDT(phecodeData)
 
-theme_set(theme_light() +
+theme_set(theme_classic() +
             theme(axis.text = element_text(color = 'black'),
-                  strip.text = element_text(color = 'black'),
-                  panel.grid.minor = element_blank(),
                   legend.margin = margin(t = 0, r = 0, b = 0, l = 0, unit = 'cm')))
 
 ############################################################

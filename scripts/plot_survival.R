@@ -17,7 +17,7 @@ maxPvalLoad = 1e-5
 ############################################################
 
 gwasMetadata = read_tsv(file.path(resultDir, 'gwas_metadata.tsv'),
-                        col_types = 'cccccdc')
+                        col_types = 'cccccdddc')
 setDT(gwasMetadata)
 
 mapData = read_csv(file.path(procDir, 'map_data.csv.gz'), col_types = 'iccicc')
@@ -87,7 +87,7 @@ sfd[, snpLabel := sprintf('%s-%s', snp, allele1)]
 
 p = ggplot(sfd) +
   facet_wrap(~ phenoLabel + snpLabel, scales = 'free_y', nrow = 1) +
-  geom_step(aes(x = age, y = surv, color = factor(genotype))) +
+  geom_step(aes(x = age, y = surv, color = factor(genotype)), size = 1) +
   labs(x = 'Age (y)', y = 'Survival\n(frac. undiagnosed)',
        color = 'Allele\ncount') +
   scale_x_continuous(limits = c(20, 89)) +
