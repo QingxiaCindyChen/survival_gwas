@@ -1,0 +1,99 @@
+---
+title: "Survival Analysis for GWAS -- Simulation"
+author: "Cindy Chen"
+date: "May 20, 2018"
+output:
+  pdf_document:
+    toc: true
+    toc_depth: 2
+---
+  
+## Notes
+Simulation study to compare the performance of Cox model vs Logistic regression model in GWAS study.
+
+### Simulation I
+Data in each simulation were generated to mimic the real study using the following algorithm. 
+
+- The each simulation, sample size is 29000 with 100 true risk alleles and 29900 false risk alleles. The probabilities of the minor alleles were generated from the distribution of the risk alleles in the real study. 
+- The coefficients of the true risk alleles were simulated from Uniform distribution between 0.3 and 0.5. The coefficients of the false risk alleles were set to 0s.
+- The true event time was simulated from a Cox proportional hazards model with baseline hazard generated from Exponential(10000). The censoring time was simulated from Gamma(1,1) and truncated by 2. The obserbed event time was defined as the minimum of the true event time and the censoring time.  
+- Bonferroni correction was used in each simulation for multiple comparison adjustment with overall type I error rate of 0.05. 
+- True positive rate (TPR) and true negative rate (TNR) were calculated in each simulation.
+
+```{r, echo=FALSE, message = FALSE, warning = FALSE}
+library(Hmisc)
+library(ggplot2)
+library(ggExtra)
+library(dplyr)
+code <- FALSE
+Eval <- TRUE
+d <- read.table(file='aggregated_output2.txt', header=F)
+names(d) <- c('eventr', 'CoxTPR', 'CoxTNR', 'LogitTPR', 'LogitTNR')
+```
+
+```{r, echo=code,comment=NA}
+describe(d)
+dsummary <- d %>% summarise(meanLogit=round(mean(LogitTPR),2), meanCox=round(mean(CoxTPR),2),
+                         medianLogit=round(median(LogitTPR),2), medianCox=round(median(CoxTPR),2)) 
+p <- ggplot(d, aes(x=LogitTPR, y=CoxTPR)) + geom_point(size=0.2) + geom_abline(intercept = 0, slope = 1, color="grey")+ geom_vline(xintercept=median(d$LogitTPR), color="grey") +geom_hline(yintercept=median(d$CoxTPR), color="grey") +
+labs(x = "Average Power of Logistic regression Model", y="Average Power of Cox PH Model") + 
+geom_text(data=dsummary, aes(x=meanLogit, label=paste("Mean\n",meanLogit,sep=''), y=0.6), size=3) +
+# geom_text(data=dsummary, aes(x=medianLogit, label=paste("Median\n",medianLogit,sep=''), y=0.6), size=3) +
+geom_text(data=dsummary, aes(y=meanCox, label=paste("Mean\n",meanCox,sep=''), x=0.55), size=3) +
+# geom_text(data=dsummary, aes(y=medianCox, label=paste("Median\n",medianCox,sep=''), x=0.55), size=3) +
+  xlim(0.55,0.95) + ylim(0.55,0.95) +
+geom_jitter()
+
+ggExtra::ggMarginal(p, type = "histogram")
+```
+
+### Simulation II -- with left truncation
+Following simulation I except truncation time was simulated from Unif(0,0.1) and records were removed from the dataset when the observed event times were less than the truncation times. 
+
+```{r, echo=FALSE, message = FALSE, warning = FALSE}
+d2 <- read.table(file='aggregated_trunc_output1.txt', header=F)
+names(d2) <- c('n1', 'eventr', 'CoxTPR', 'CoxTNR', 'LogitTPR', 'LogitTNR', 'TCoxTPR', 'TCoxTNR')
+d2 <- subset(d2, !is.na(d2$n1))
+```
+
+```{r, echo=code,comment=NA}
+describe(d2)
+
+d2summary <- d2 %>% summarise(meanLogit=round(mean(LogitTPR),2), meanCox=round(mean(CoxTPR),2), meanTCox=round(mean(TCoxTPR),2),
+                         medianLogit=round(median(LogitTPR),2), medianCox=round(median(CoxTPR),2), medianTCox=round(median(TCoxTPR),2)) 
+p2 <- ggplot(d2, aes(x=LogitTPR, y=TCoxTPR)) + geom_point(size=0.3) + geom_abline(intercept = 0, slope = 1, color="grey")+ geom_vline(xintercept=median(d2$LogitTPR), color="grey") +geom_hline(yintercept=median(d2$TCoxTPR), color="grey") + 
+labs(x = "Average Power for Logistic Model", y="Average Power for Cox Model with Truncation") +
+geom_text(data=d2summary, aes(x=medianLogit, label=paste("Median\n",medianLogit,sep=''), y=0.55), size=2) +
+geom_text(data=d2summary, aes(y=medianTCox, label=paste("Median\n",medianTCox,sep=''), x=0.5), size=2) +
+geom_jitter()
+
+ggExtra::ggMarginal(p2, type = "histogram")
+```
+
+```{r, echo=code,comment=NA}
+p3 <- ggplot(d2, aes(x=CoxTPR, y=TCoxTPR)) + geom_point(size=0.3) + geom_abline(intercept = 0, slope = 1, color="grey")+ geom_vline(xintercept=median(d2$CoxTPR), color="grey") +geom_hline(yintercept=median(d2$TCoxTPR), color="grey") +
+labs(x = "TPR for Cox Model without Truncation", y="TPR for Cox Model with Truncation") + 
+geom_text(data=d2summary, aes(x=medianCox, label=paste("Median\n",medianCox,sep=''), y=0.55), size=2) +
+geom_text(data=d2summary, aes(y=medianTCox, label=paste("Median\n",medianTCox,sep=''), x=0.55), size=2)
+
+ggExtra::ggMarginal(p3, type = "histogram")
+```
+
+```{r, echo=code,comment=NA}
+p4 <- ggplot(d2, aes(x=LogitTPR, y=TCoxTPR)) + geom_point(size=0.4) + geom_abline(intercept = 0, slope = 1, color="grey")+ geom_vline(xintercept=median(d2$LogitTPR), color="grey") +geom_hline(yintercept=median(d2$TCoxTPR), color="grey") +
+labs(x = "Average Power of Logistic regression Model", y="Average Power of Cox PH Model with Truncation") + 
+  theme(axis.text=element_text(size=12), axis.title=element_text(size=16,face="bold"))+
+geom_text(data=d2summary, aes(x=meanLogit, label=paste("Mean\n",meanLogit,sep=''), y=0.6), size=5) +
+# geom_text(data=d2summary, aes(x=medianLogit, label=paste("Median\n",medianLogit,sep=''), y=0.6), size=5) +
+geom_text(data=d2summary, aes(y=meanTCox, label=paste("Mean\n",meanTCox,sep=''), x=0.55), size=5) +
+# geom_text(data=d2summary, aes(y=medianTCox, label=paste("Median\n",medianTCox,sep=''), x=0.55), size=5) +
+  xlim(0.45,0.90) + ylim(0.45,0.90) +
+geom_jitter()
+
+ggExtra::ggMarginal(p4, type = "histogram")
+
+png(filename="p4.png", width = 1024, height = 768)
+ggExtra::ggMarginal(p4, type = "histogram")
+dev.off()
+
+```

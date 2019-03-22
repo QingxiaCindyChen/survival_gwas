@@ -278,7 +278,8 @@ appendLogFile = function(logFile, gwasMetadata, phecodeIdx, chunkIdx = NULL) {
 
 finishLogFile = function(logFile) {
   d = read_tsv(logFile$metaPath, col_types = cols())
-  d$timeElapsed = Sys.time() - d$datetimeStarted
+  d$timeElapsed = as.POSIXct(as.character(Sys.time())) -
+    as.POSIXct(as.character(d$datetimeStarted))
   d$timeElapsedUnits = attr(d$timeElapsed, 'units')
   invisible(write_tsv(d, logFile$metaPath))}
 
@@ -654,10 +655,6 @@ plotEffectSize = function(gwasData, lnCol, lnSz, ptShp, ptSz, ptAlph, md = TRUE)
     p = insert_xaxis_grob(pTmp, gx, grid::unit(0.4, 'in'), position = 'top')
     p = insert_yaxis_grob(p, gy, grid::unit(0.4, 'in'), position = 'right')
   }
-
-    # paramList = list(col = 'white', fill = 'darkgray', size = 0.25)
-    # p = ggExtra::ggMarginal(pTmp, type = 'histogram', binwidth = 0.15, boundary = 0,
-    #                         xparams = paramList, yparams = paramList)}
   return(list(d, p))}
 
 

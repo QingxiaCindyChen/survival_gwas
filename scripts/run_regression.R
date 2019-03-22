@@ -56,7 +56,7 @@ if (params$gwas$cox || params$gwas$logistic) {
   phenoList = prepPhenoDataForGwas(resultDir, gwasMetadata, phenoData,
                                    gridData, params$pheno$minEvents,
                                    params$pheno$ageBuffer)
-  phenoFilenames = unlist(phenoList[,2])
+  phenoFilenames = unlist(phenoList[, 2])
 }
 
 ############################################################

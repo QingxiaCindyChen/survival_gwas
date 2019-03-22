@@ -13,8 +13,10 @@ simData = fread(file.path(resultDir, 'TruncOutput.txt'))
 mean(simData$TCoxTPR)
 mean(simData$LogitTPR)
 
-mean(simData$TCoxTNR)
-mean(simData$LogitTNR)
+ttestResult = t.test(simData$TCoxTPR, simData$LogitTPR, paired = TRUE)
+
+1 - mean(simData$TCoxTNR)
+1 - mean(simData$LogitTNR)
 
 p = ggplot(simData) +
   geom_abline(slope = 1, intercept = 0, size = 0.5, color = 'gray') +
