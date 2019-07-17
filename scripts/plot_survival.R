@@ -88,7 +88,9 @@ sfd[, snpLabel := sprintf('%s-%s', snp, allele1)]
 p = ggplot(sfd) +
   facet_wrap(~ phenoLabel + snpLabel, scales = 'free_y', nrow = 1) +
   geom_step(aes(x = age, y = surv, color = factor(genotype)), size = 1) +
-  labs(x = 'Age (y)', y = 'Survival\n(frac. undiagnosed)',
+  labs(x = 'Age (y)',
+       y = 'Undiagnosed / at-risk',
+       # y = 'Survival\n(frac. undiagnosed)',
        color = 'Allele\ncount') +
   scale_x_continuous(limits = c(20, 89)) +
   scale_color_viridis(direction = 1, discrete = TRUE)
