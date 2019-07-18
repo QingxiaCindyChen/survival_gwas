@@ -2,6 +2,7 @@ library('BEDMatrix')
 library('cowplot')
 library('data.table')
 library('doParallel')
+library('ggplot2')
 library('ggrepel')
 library('readr')
 library('survival')
@@ -574,8 +575,7 @@ mergeAll = function(gwasData, phecodeData, gwasMetadata, mapData) {
   return(gwasData)}
 
 
-plotManhattan = function(gwasData, mapData, plotDir, sz = 0.25, save = TRUE,
-                         ...) {
+plotManhattan = function(gwasData, mapData, plotDir, sz = 0.25, save = TRUE, ...) {
   mapData = mapData[order(chr, pos)]
   mapData[, posIdx := .I]
   mapData[, chrMod := (chr + 1) %% 2]
@@ -662,10 +662,8 @@ plotPval = function(gwasData, lnCol, lnSz, ptShp, ptSz, ptAlph) {
     geom_hline(yintercept = 0, color = lnCol, size = lnSz) +
     geom_point(aes(x = (logistic + cox) / 2, y = cox - logistic),
                shape = ptShp, size = ptSz, alpha = ptAlph) +
-    # geom_smooth(aes(x = (logistic + cox) / 2, y = cox - logistic),
-    #             size = 0.5, method = 'loess', span = 0.5) +
-    labs(x = expression((-log[10](p[Cox]) - log[10](p[logistic])) / 2),
-         y = expression(-log[10](p[Cox]) + log[10](p[logistic])))
+    labs(x = expression(mean(-log[10]~p)),
+         y = expression(diff(-log[10]~p)))
   return(list(d, p))}
 
 
@@ -688,8 +686,8 @@ plotLambda = function(gwasLambdaData, lnCol, lnSz, ptShp, ptSz, ptAlph,
     geom_text_repel(aes(x = (logistic + cox) / 2, y = cox - logistic,
                          label = phecode), size = 3,
                      data = gwasLambdaData[cox - logistic >= 0.05]) +
-    labs(x = expression((lambda[med*','*Cox] + lambda[med*','*logistic]) / 2),
-         y = expression(lambda[med*','*Cox] - lambda[med*','*logistic])) +
+    labs(x = expression(mean(lambda[med])),
+         y = expression(diff(lambda[med]))) +
     scale_x_continuous(limits = xlims) +
     scale_y_continuous(limits = ylims)
   return(p)}

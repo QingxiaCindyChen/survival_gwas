@@ -106,18 +106,27 @@ ggsave(file.path(plotDir, 'example_manhattan.pdf'),
 
 ############################################################
 
-# a = merge(gwasDataPval, gwasDataSig, by = c('phecode', 'snp'))
-#
-# p = ggplot(a) +
-#   geom_point(aes(x = log10(maf), y = cox - logistic), shape = ptShp, size = ptSz, alpha = ptAlph)
-# print(p)
-#
-# p = ggplot(a) +
-#   geom_point(aes(x = log10(nCases), y = cox - logistic), shape = ptShp, size = ptSz, alpha = ptAlph) +
-#   geom_smooth(aes(x = log10(nCases), y = cox - logistic), size = 0.5, method = 'loess', span = 0.5)
-# print(p)
-#
-# p = ggplot(a) +
-#   geom_point(aes(x = logRatio, y = cox - logistic), shape = ptShp, size = ptSz, alpha = ptAlph) +
-#   geom_smooth(aes(x = logRatio, y = cox - logistic), size = 0.5, method = 'loess', span = 0.5)
-# print(p)
+gdSelect = loadGwas(resultDir, gwasMetadata[phecode %in% c('165.1', '185', '250.2', '411.2')], 1)[[1]]
+gdSelect[method == 'cox', method := 'Cox']
+gdSelect = merge(gdSelect, phecodeData[, .(phecode, phenotype)], by = 'phecode')
+
+transNegLog10 = scales::trans_new('neglog10', function(x) -log10(x), function(x) 10^(-x))
+scaleBreaks = 10^(seq(-39, 0, 3))
+
+phecodes = sort(unique(gdSelect$phecode))
+pList = foreach(phecodeNow = phecodes) %dopar% {
+  gdNow = gdSelect[phecode == phecodeNow]
+  phenoLabel = sprintf('%s (%s)', gdNow$phenotype[1], gdNow$phecode[1])
+  p = ggplot(gdNow, aes(sample = pval)) +
+    facet_grid(. ~ method) +
+    geom_abline(slope = 1, intercept = 0, color = 'gray') +
+    stat_qq(size = 0.25, distribution = stats::qunif) +
+    labs(title = phenoLabel,
+         x = expression(-log[10](p)~expected),
+         y = expression(-log[10](p)~observed)) +
+    scale_x_continuous(trans = transNegLog10, breaks = scaleBreaks) +
+    scale_y_continuous(trans = transNegLog10, breaks = scaleBreaks)}
+names(pList) = phecodes
+
+p = plot_grid(plotlist = pList, align = 'hv', axis = 'tblr', ncol = 2, labels = 'AUTO')
+ggsave(file.path(plotDir, 'example_qq.png'), plot = p, width = 7.5, height = 5)
