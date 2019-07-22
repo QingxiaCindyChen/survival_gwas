@@ -611,13 +611,6 @@ plotManhattan = function(gwasData, mapData, plotDir, sz = 0.25, save = TRUE, ...
   return(pList)}
 
 
-plotQq = function(byList, dtSubset, plotDir, main = NULL) {
-  filename = sprintf('%s_%s_qq.pdf', byList$phecodeStr, byList$method)
-  pdf(file.path(plotDir, filename), width = 6, height = 4)
-  qq(dtSubset$pval, main = main)
-  dev.off()}
-
-
 filterForSignificance = function(gwasData, maxPval) {
   d = gwasData[, if (mean(-log(pval), na.rm = TRUE) >= -log(maxPval)) .SD,
                by = .(phecode, snp)]

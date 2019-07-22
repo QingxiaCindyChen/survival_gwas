@@ -112,6 +112,7 @@ gdSelect = merge(gdSelect, phecodeData[, .(phecode, phenotype)], by = 'phecode')
 
 transNegLog10 = scales::trans_new('neglog10', function(x) -log10(x), function(x) 10^(-x))
 scaleBreaks = 10^(seq(-39, 0, 3))
+scaleLabels = as.character(-log10(scaleBreaks))
 
 phecodes = sort(unique(gdSelect$phecode))
 pList = foreach(phecodeNow = phecodes) %dopar% {
@@ -124,8 +125,9 @@ pList = foreach(phecodeNow = phecodes) %dopar% {
     labs(title = phenoLabel,
          x = expression(-log[10](p)~expected),
          y = expression(-log[10](p)~observed)) +
-    scale_x_continuous(trans = transNegLog10, breaks = scaleBreaks) +
-    scale_y_continuous(trans = transNegLog10, breaks = scaleBreaks)}
+    scale_x_continuous(trans = transNegLog10, breaks = scaleBreaks, labels = scaleLabels) +
+    scale_y_continuous(trans = transNegLog10, breaks = scaleBreaks, labels = scaleLabels)
+}
 names(pList) = phecodes
 
 p = plot_grid(plotlist = pList, align = 'hv', axis = 'tblr', ncol = 2, labels = 'AUTO')
