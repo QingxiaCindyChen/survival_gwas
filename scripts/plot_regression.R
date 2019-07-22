@@ -46,6 +46,8 @@ rm(gwasDataTmp)
 
 ############################################################
 
+gwasData[pval <= 5e-8, .N, by = method]
+
 maxPval = 1e-5
 gwasDataSig = filterForSignificance(gwasData, maxPval)
 
