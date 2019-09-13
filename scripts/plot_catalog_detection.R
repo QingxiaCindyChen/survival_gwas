@@ -47,10 +47,10 @@ a = unique(merge(gwasData[, .(phecode, snp, method, pval)],
 
 ############################################################
 
-pvalConsecCutoff = 1e-4 # must be <= maxPvalLoad
+pvalSeqCutoff = 1e-4 # must be <= maxPvalLoad
 aCast = dcast(a, phecode + ldBlock + snp ~ method, value.var = 'pval')
-aCast[, consecutive := ifelse(logistic <= pvalConsecCutoff, cox, logistic)]
-a = melt(aCast, measure.vars = c('logistic', 'cox', 'consecutive'),
+aCast[, sequential := ifelse(logistic <= pvalSeqCutoff, cox, logistic)]
+a = melt(aCast, measure.vars = c('logistic', 'cox', 'sequential'),
          variable.name = 'method', value.name = 'pval')
 
 ############################################################
@@ -63,7 +63,7 @@ a1 = foreach(negLogPvalNow = negLogPvalCutoffs, .combine = rbind) %dopar% {
            by = method]
   aNow[, negLogPvalCutoff := negLogPvalNow][]}
 
-a1$method = factor(a1$method, levels(a1$method), c('logistic', 'Cox', 'consecutive'))
+a1$method = factor(a1$method, levels(a1$method), c('logistic', 'Cox', 'sequential'))
 a1[, fracDetected := nDetected / nAssoc]
 
 p1 = ggplot(a1) +
